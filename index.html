@@ -121,8 +121,12 @@
   @media (max-width:899px){
     #stage{inset:0}
     #panel{left:0;right:0;bottom:0;border-top:1px solid var(--ink);
-      padding:8px 16px calc(14px + env(safe-area-inset-bottom));max-height:62vh}
-    #panel.hidden{transform:translateY(calc(100% - 44px))}
+      padding:0 16px calc(14px + env(safe-area-inset-bottom));
+      max-height:70vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+    #panel.hidden{transform:translateY(calc(100% - 48px))}
+    #grab{order:-1;position:sticky;top:0;z-index:3;background:var(--paper);
+      padding:12px 0 8px;margin:0 -16px;width:calc(100% + 32px)}
+    #sliders{overflow:visible;flex:none}
     .grpbody{grid-template-columns:1fr 1fr;gap:1px 14px}
     .mark{font-size:24px}
     .dockhead{padding-bottom:8px}
