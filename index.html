@@ -356,9 +356,13 @@ const GLSL_POST = `
 vec3 postfx(vec2 uv, vec2 vuv, vec2 px, float t){
   float ca = uChroma*0.008;                 // chromatic aberration: split RGB
   vec3 col;
-  col.r = scene(uv*(1.0+ca), t).r;
-  col.g = scene(uv, t).g;
-  col.b = scene(uv*(1.0-ca), t).b;
+  if(uChroma > 0.001){                      // 3 scene samples only when needed
+    col.r = scene(uv*(1.0+ca), t).r;
+    col.g = scene(uv, t).g;
+    col.b = scene(uv*(1.0-ca), t).b;
+  } else {
+    col = scene(uv, t);                     // chroma at 0 = one sample, 3x faster
+  }
   // BACKGROUND — tinted light that fills only the darks
   col += spectral(uBgHue) * uBgLight * 0.55 * exp(-(col.r+col.g+col.b)*2.5);
   // LIGHT — additive lamps in screen space, on every portal
@@ -656,6 +660,105 @@ vec3 scene(vec2 p, float t){
   dd:{warp:1}
 },
 {
+  id:"clouds", name:"Clouds", note:"Protean Clouds — volumetric flythrough", mode:"preset",
+  scene:`
+// Adapted from "Protean clouds" by nimitz (@stormoid)
+// https://www.shadertoy.com/view/3l23Rh
+// License: CC BY-NC-SA 3.0 (non-commercial). Included in this
+// free app under that license, with gratitude. Drag to steer.
+// THE HEAVYWEIGHT — a real volumetric raymarch; happiest on a laptop.
+mat2 rot2(float a){ float c=cos(a), s=sin(a); return mat2(c,s,-s,c); }
+const mat3 CM3 = mat3(0.643423, 1.081456, -1.386068,
+                     -1.696219, 0.630164, -0.295734,
+                      0.292627, 1.343203,  1.183843);
+float mag2(vec2 p){ return dot(p,p); }
+float linstep(float mn, float mx, float x){ return clamp((x-mn)/(mx-mn), 0.0, 1.0); }
+vec2 disp(float t){ return vec2(sin(t*0.22), cos(t*0.175))*2.0; }
+vec2 cmap(vec3 p, float prm1, float bsy, float iT){
+  vec3 p2 = p;
+  p2.xy -= disp(p.z).xy;
+  p.xy = p.xy * rot2(sin(p.z + iT)*(0.1 + prm1*0.05) + iT*0.09);
+  float cl = mag2(p2.xy);
+  float d = 0.0;
+  p *= 0.61;
+  float z = 1.0, trk = 1.0;
+  float dspAmp = (0.1 + prm1*0.2) * uWarp;
+  for(int i=0;i<5;i++){
+    p += sin(p.zxy*0.75*trk + iT*trk*0.8)*dspAmp;
+    d -= abs(dot(cos(p), sin(p.yzx))*z);
+    z *= 0.57; trk *= 1.4;
+    p = p*CM3;
+  }
+  d = abs(d + prm1*3.0) + prm1*0.3 - 2.5 + bsy;
+  return vec2(d + cl*0.2 + 0.25, cl);
+}
+vec4 crender(vec3 ro, vec3 rd, float time, float prm1, float bsy, float iT){
+  vec4 rez = vec4(0.0);
+  float t = 1.5, fogT = 0.0;
+  for(int i=0;i<90;i++){
+    if(rez.a > 0.99) break;
+    vec3 pos = ro + t*rd;
+    vec2 mpv = cmap(pos, prm1, bsy, iT);
+    float den = clamp(mpv.x-0.3, 0.0, 1.0)*1.12;
+    float dn = clamp(mpv.x+2.0, 0.0, 3.0);
+    vec4 col = vec4(0.0);
+    if(mpv.x > 0.6){
+      col = vec4(sin(vec3(5.0,0.4,0.2) + mpv.y*0.1 + sin(pos.z*0.4)*0.5 + 1.8 + uHue*6.28318)*0.5+0.5, 0.08);
+      col *= den*den*den;
+      col.rgb *= linstep(4.0, -2.5, mpv.x)*2.3;
+      float dif = clamp((den - cmap(pos+0.8, prm1, bsy, iT).x)/9.0, 0.001, 1.0);
+      dif += clamp((den - cmap(pos+0.35, prm1, bsy, iT).x)/2.5, 0.001, 1.0);
+      col.xyz *= den*(vec3(0.005,0.045,0.075) + 1.5*vec3(0.033,0.07,0.03)*dif);
+    }
+    float fogC = exp(t*0.2 - 2.2);
+    col += vec4(0.06,0.11,0.11,0.1)*clamp(fogC-fogT, 0.0, 1.0);
+    fogT = fogC;
+    rez = rez + col*(1.0 - rez.a);
+    t += clamp(0.5 - dn*dn*0.05, 0.09, 0.3);
+  }
+  return clamp(rez, 0.0, 1.0);
+}
+float getsat(vec3 c){
+  float mi = min(min(c.x,c.y),c.z);
+  float ma = max(max(c.x,c.y),c.z);
+  return (ma-mi)/(ma+1e-7);
+}
+vec3 iLerp(vec3 a, vec3 b, float x){
+  vec3 ic = mix(a,b,x) + vec3(1e-6,0.0,0.0);
+  float sd = abs(getsat(ic) - mix(getsat(a), getsat(b), x));
+  vec3 dir = normalize(vec3(2.0*ic.x-ic.y-ic.z, 2.0*ic.y-ic.x-ic.z, 2.0*ic.z-ic.y-ic.x));
+  float lgt = dot(vec3(1.0), ic);
+  float ff = dot(dir, normalize(ic));
+  ic += 1.5*dir*sd*ff*lgt;
+  return clamp(ic, 0.0, 1.0);
+}
+vec3 scene(vec2 p, float t){
+  float iT = t*0.8*uFlow;
+  float time = iT*3.0;
+  vec2 bsMo = uMouse;                 // drag steers, like their mouse
+  vec3 ro = vec3(0.0, 0.0, time);
+  ro += vec3(sin(iT)*0.5, 0.0, 0.0);
+  float dspAmp = 0.85;
+  ro.xy += disp(ro.z)*dspAmp;
+  float tgtDst = 3.5;
+  vec3 target = normalize(ro - vec3(disp(time+tgtDst)*dspAmp, time+tgtDst));
+  ro.x -= bsMo.x*2.0;
+  vec3 rightdir = normalize(cross(target, vec3(0.0,1.0,0.0)));
+  vec3 updir = normalize(cross(rightdir, target));
+  rightdir = normalize(cross(updir, target));
+  vec3 rd = normalize((p.x*rightdir + p.y*updir) - target);
+  rd.xy = rd.xy * rot2(-disp(time+3.5).x*0.2 + bsMo.x);
+  float prm1 = smoothstep(-0.4, 0.4, sin(iT*0.3));
+  vec4 scn = crender(ro, rd, time, prm1, bsMo.y, iT);
+  vec3 col = scn.rgb;
+  col = iLerp(col.bgr, col.rgb, clamp(1.0-prm1, 0.05, 1.0));
+  col = pow(col, vec3(0.55,0.65,0.6))*vec3(1.0,0.97,0.9);
+  return col;
+}`,
+  d:{...D0, speed:1, warp:1, flow:1, spectrum:1, hue:0, glow:.4, grain:.2, chroma:0, vignette:.3, sat:1.1},
+  dd:{}
+},
+{
   id:"fireworks", name:"Fireworks", note:"rockets, bursts, streaking sparks", mode:"preset",
   scene:`
 // FIREWORKS — a particle system inside a fragment shader.
@@ -750,97 +853,104 @@ vec3 scene(vec2 p, float t){
 {
   id:"pool", name:"Pool", note:"sunlit water — tap to drop a ripple", mode:"preset",
   scene:`
-// POOL — sunlit water from above. The dancing light webs are
-// CAUSTICS: wave crests focus sunlight into bright lines.
-// Tap the water and a ripple spreads from your finger,
-// bending the caustics as it goes.
+// Adapted from David Hoskins' tileable version of joltz0r's
+// water turbulence — https://www.shadertoy.com/view/MdlXz8
+// License: CC BY-NC-SA (non-commercial). Included in this free
+// app under that license, with gratitude. Tap to ripple.
 vec3 scene(vec2 p, float t){
-  // your last tap becomes an expanding ring that bends the water
+  // our tap ripple, bending the water before the turbulence runs
   float age = max(uTime - uTap.z, 0.0);
   vec2 dtp = p - uTap.xy;
   float rr = length(dtp) + 1e-4;
   float ring = sin(rr*26.0 - age*6.0) * exp(-rr*2.2) * exp(-age*0.9) * step(0.001, uTap.z);
-  p += (dtp/rr) * ring * 0.06 * uWarp;
+  p += (dtp/rr) * ring * 0.08 * uWarp;
 
-  vec2 q = p*3.2;
-  float n1 = fbm(q + vec2(t*0.22*uFlow,  t*0.13*uFlow));
-  float n2 = fbm(q*1.35 + vec2(-t*0.17*uFlow, t*0.11*uFlow) + n1*uWarp*1.2);
-  float r1 = 1.0 - abs(n1*2.0 - 1.0);           // ridged waves
-  float r2 = 1.0 - abs(n2*2.0 - 1.0);
-  float caus = pow(max(r2,0.0), 6.0)*1.5 + pow(max(r1,0.0), 9.0)*0.9;
-
-  vec3 water = spectral(uHue + n1*0.06*uSpectrum);  // pool blue lives at Hue 0.45
-  vec3 col = water * (0.35 + n1*0.35);
-  col *= 0.8 + 0.3*p.y;                             // shallow end brighter
-  col += vec3(1.0,1.0,0.95) * caus;
-  col += vec3(1.0,0.95,0.8) * pow(max(fbm(q*2.6 + t*0.3*uFlow), 0.0), 9.0) * 2.2; // sun glitter
-  col += vec3(1.0) * abs(ring) * 1.6;               // the ripple itself glints
-  return col;
+  float time = t*0.5*uFlow + 23.0;
+  vec2 uv01 = p*0.5 + 0.5;                        // centered -> 0..1 texture space
+  vec2 pp = mod(uv01*6.28318530718, 6.28318530718) - 250.0;
+  vec2 i = pp;
+  float c = 1.0;
+  float inten = 0.005;
+  for(int n=0; n<5; n++){
+    float t2 = time * (1.0 - (3.5/float(n+1)));
+    i = pp + vec2(cos(t2 - i.x) + sin(t2 + i.y),
+                  sin(t2 - i.y) + cos(t2 + i.x)) * (0.75 + 0.35*uWarp);
+    c += 1.0/length(vec2(pp.x/(sin(i.x + t2)/inten),
+                         pp.y/(cos(i.y + t2)/inten)));
+  }
+  c /= 5.0;
+  c = 1.17 - pow(c, 1.4);
+  vec3 colour = vec3(pow(abs(c), 8.0));
+  colour = clamp(colour + spectral(uHue)*0.57, 0.0, 1.0);   // Hue 0.45 = their pool blue
+  colour += vec3(1.0)*abs(ring)*1.2;                        // the ripple glints
+  return colour;
 }`,
-  d:{...D0, speed:1, warp:1, flow:1, spectrum:.6, hue:.45, glow:.45, grain:.2, chroma:.25, vignette:.3, sat:1.15, sparkle:.1},
+  d:{...D0, speed:1, warp:1, flow:1, spectrum:.6, hue:.45, glow:.4, grain:.15, chroma:.2, vignette:.3, sat:1.1},
   dd:{warp:1}
 },
 {
-  id:"metal", name:"Metal", note:"liquid chrome with thin-film edges", mode:"preset",
+  id:"metal", name:"Metal", note:"liquid metal — accumulation march", mode:"preset",
   scene:`
-// METAL — liquid chrome. A noise height-field pretends to be a
-// polished surface: its SLOPE decides how much sky reflects at
-// you, folded into hard bands. Thin-film color leaks in at the
-// band edges, like oil on steel.
+// Adapted from a liquid-metal shader by Frostbyte (Shadertoy),
+// using Xor's Dot Noise (shadertoy.com/view/wfsyRX).
+// License: CC BY-NC-SA 4.0 (non-commercial). Included in this
+// free app under that license, with gratitude.
+vec2 rotV(vec2 v, float t){ float s=sin(t), c=cos(t); return mat2(c,-s,s,c)*v; }
+vec3 acesTone(vec3 c){
+  mat3 m1 = mat3(0.59719,0.07600,0.02840, 0.35458,0.90834,0.13383, 0.04823,0.01566,0.83777);
+  mat3 m2 = mat3(1.60475,-0.10208,-0.00327, -0.53108,1.10813,-0.07276, -0.07367,-0.00605,1.07602);
+  vec3 v = m1*c;
+  vec3 va = v*(v+0.0245786) - 0.000090537;
+  vec3 vb = v*(0.983729*v + 0.4329510) + 0.238081;
+  return m2*(va/vb);
+}
+float dotNoise(vec3 p){
+  const float PHI = 1.618033988;
+  const mat3 GOLD = mat3(
+    -0.571464913,  0.814921382, 0.096597072,
+    -0.278044873, -0.303026659, 0.911518454,
+     0.772087367,  0.494042493, 0.399753815);
+  return dot(cos(GOLD*p), sin(PHI*p*GOLD));
+}
 vec3 scene(vec2 p, float t){
-  vec2 q = p*2.2;
-  float h  = fbm(q + vec2(t*0.08*uFlow, 0.0));
-  float hx = fbm(q + vec2(0.045, 0.0) + vec2(t*0.08*uFlow, 0.0));
-  float slope = (hx - h) * 22.0;                 // fake surface normal
-  float band  = h*7.0 + slope*uWarp - p.y*2.0;
-  float m = abs(fract(band) - 0.5) * 2.0;        // sharp reflection bands
-  vec3 col = mix(vec3(0.03,0.035,0.05), vec3(0.55,0.58,0.66), pow(1.0-m, 2.0));
-  col += vec3(1.0,0.99,0.95) * pow(1.0-m, 6.0) * 1.6;             // hot highlight
-  col += spectral(band*0.14*uSpectrum + uHue) * pow(1.0-m, 3.0) * 0.5; // thin-film edges
-  col *= 0.6 + 0.5*fbm(q*0.6 + 2.7);             // big soft tone variation
-  return col;
+  float tt = t*uFlow;
+  vec3 pos = vec3(0.0, 0.0, -1.0 - 0.5*sin(tt*0.1));
+  vec3 d = normalize(vec3(p, 1.0));
+  vec3 l = vec3(0.0);
+  float s;
+  for(int k=0;k<10;k++){
+    vec3 b = pos;
+    b.xy = rotV(sin(b.xy*0.25), tt*0.5 + b.z*2.0);
+    s = 0.001 + abs(dotNoise(b*20.0)/20.0 - dotNoise(b))*0.7*uWarp;
+    s += abs(pos.y*0.2 + sin(pos.z*2.0 + abs(pos.x)*0.5))*0.5;
+    pos += d*s;
+    l += (1.0 + 1.5*sin(float(k) + length(pos.xy*0.1) + 2.0
+          + vec3(3.0,1.5,0.5) + uHue*6.28318))/s;
+  }
+  return acesTone(l*l/500.0);
 }`,
-  d:{...D0, speed:.7, warp:1.2, flow:1, spectrum:1, hue:.08, glow:.5, grain:.25, chroma:.6, vignette:.4, sat:1.0, fibers:.25}
+  d:{...D0, speed:1, warp:1, flow:1, spectrum:1, hue:0, glow:.4, grain:.2, chroma:.3, vignette:.35, sat:1.1}
 },
 {
-  id:"glass", name:"Glass", note:"frosted shards, prism-edge dispersion", mode:"preset",
+  id:"grain", name:"Noise", note:"digital static — RGB computer noise", mode:"preset",
   scene:`
-// GLASS — frosted shards. RIDGED noise (fold noise around its
-// middle: 1-abs(n*2-1)) makes crack-like creases, and light
-// disperses into spectra exactly there — the edge of a prism.
+// NOISE — pure computer-graphics static. Every cell re-rolls a
+// random value each refresh. Warp = cell size (chunky pixels to
+// fine static), Flow = refresh rate, Spectrum = how much the
+// R, G, B channels disagree (0 = monochrome TV snow).
 vec3 scene(vec2 p, float t){
-  vec2 q = p*2.8;
-  float n1 = fbm(q + t*0.04*uFlow);
-  float ridge = 1.0 - abs(n1*2.0 - 1.0);
-  float n2 = fbm(q*2.1 + n1*uWarp*2.0 - t*0.03*uFlow);
-  float edge = pow(smoothstep(0.72, 1.0, ridge), 2.0);
-  vec3 col = vec3(0.03,0.04,0.06) + vec3(0.10,0.13,0.17)*n2;     // cold glass body
-  col += spectral(n1*1.2*uSpectrum + uHue) * edge * 1.7;         // dispersive crack light
-  col += vec3(0.85,0.92,1.0) * pow(max(fbm(q*3.0 - n1*2.0), 0.0), 7.0) * 1.2; // inner glints
-  col += vec3(0.9,0.95,1.0) * pow(ridge, 14.0) * 0.8;            // razor highlight
-  return col;
+  float fps = mix(6.0, 60.0, clamp(uFlow*0.45, 0.0, 1.0));
+  float frame = floor(t*fps);
+  float scale = mix(50.0, 420.0, clamp(uWarp*0.45, 0.0, 1.0));
+  vec2 g = floor(p*scale) + frame*0.37;
+  vec3 rgb = vec3(hash(g), hash(g+13.1), hash(g+27.7));   // per-channel rolls
+  vec3 col = mix(vec3(rgb.x), rgb, clamp(uSpectrum*0.7, 0.0, 1.0));
+  col = mix(col, col*spectral(uHue)*1.6, 0.35);           // tint
+  float line = step(0.992, hash(vec2(floor(p.y*scale*0.5), frame)));
+  col = mix(col, vec3(rgb.x)*1.4, line*0.6);              // dropout lines
+  return col*0.95;
 }`,
-  d:{...D0, speed:.6, warp:1.1, spectrum:1.1, hue:.5, glow:.6, grain:.22, chroma:.9, vignette:.35, sat:1.1, fibers:.15}
-},
-{
-  id:"paper", name:"Paper", note:"handmade sheet in raking light", mode:"preset",
-  scene:`
-// PAPER — a handmade sheet lit from the side. Three fiber
-// grains (random, horizontal-combed, vertical-combed) weave
-// the tooth; a soft height field catches the raking light.
-vec3 scene(vec2 p, float t){
-  float tooth = fbm(p*36.0)*0.5
-              + fbm(vec2(p.x*110.0, p.y*9.0))*0.3
-              + fbm(vec2(p.x*9.0, p.y*110.0))*0.3;
-  float sheet = fbm(p*2.4 + t*0.015*uFlow);
-  float lit   = fbm(p*2.4 + vec2(0.05,0.02) + t*0.015*uFlow);
-  float rake  = 0.5 + (lit - sheet)*9.0*uWarp;   // side-light shading
-  vec3 cream = mix(vec3(0.86,0.82,0.72), spectral(uHue)*0.9 + 0.35, 0.18*uSpectrum);
-  vec3 col = cream * (0.5 + tooth*0.45) * clamp(rake, 0.25, 1.35);
-  col *= 0.75 + 0.25*smoothstep(1.25, 0.3, length(p));  // deckled falloff
-  return col;
-}`,
-  d:{...D0, speed:.4, warp:1, spectrum:.5, hue:.1, glow:.2, grain:.35, chroma:.15, vignette:.3, sat:.95}
+  d:{...D0, speed:1, warp:1, flow:1, spectrum:.8, hue:.6, glow:.2, grain:0, chroma:.5, vignette:.3, sat:1.0}
 },
 {
   id:"silk", name:"Aurora Silk", note:"liquid chromatic smear, fully fluid", mode:"preset",
@@ -913,9 +1023,11 @@ void main(){
   vec2 suv = uv;                       // screen space, kept for lights/vignette
   float tubeR = length(uv);
   if(uTube > 0.5){                     // TUBE — wrap the picture into a tunnel:
-    float ta = atan(uv.y, uv.x);       // angle becomes "around the wall",
-    uv = vec2(abs(ta)*0.6366,          // 1/radius becomes "distance ahead",
-              0.35/(tubeR + 0.05) + uTime*uSpeed*0.25);  // + time = flying
+    float ta = atan(uv.y, uv.x);       // angle wraps around the wall; depth
+    float depth = 0.35/(tubeR + 0.05) + uTime*uSpeed*0.6;   // 1/radius = ahead
+    float w = abs(fract(depth*0.25)*2.0 - 1.0);  // ping-pong: the portal tiles
+    uv = vec2((abs(ta)*0.6366 - 0.5)*1.6,        // seamlessly down the tube
+              (w - 0.5)*1.8);
   }
   vec3 col = postfx(uv, suv, gl_FragCoord.xy, uTime*uSpeed);
   if(uTube > 0.5){                     // deep walls, blinding far end
@@ -1397,7 +1509,9 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
   float tubeR = length(uv);
   if(uTube > 0.5){
     float ta = atan(uv.y, uv.x);
-    uv = vec2(abs(ta)*0.6366, 0.35/(tubeR + 0.05) + uTime*uSpeed*0.25);
+    float depth = 0.35/(tubeR + 0.05) + uTime*uSpeed*0.6;
+    float w = abs(fract(depth*0.25)*2.0 - 1.0);
+    uv = vec2((abs(ta)*0.6366 - 0.5)*1.6, (w - 0.5)*1.8);
   }
   vec3 col = postfx(uv, suv, fragCoord, uTime*uSpeed);
   if(uTube > 0.5){
