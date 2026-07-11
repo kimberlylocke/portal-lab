@@ -255,6 +255,7 @@
   <button data-tool="smear">Smear</button>
   <button data-tool="ripple">Ripple</button>
   <button data-tool="spin">Spin</button>
+  <button id="pfClear" title="Clear paint">Clear</button>
 </div>
 <div id="pfHud"></div>
 
@@ -274,7 +275,7 @@
 <!-- Render Clip -->
 <div class="overlay" id="render">
   <div class="ohead"><h2>Render Clip</h2><button id="bCloseRender">Close ✕</button></div>
-  <div class="onote">Offline render — every frame is computed at exact time steps at full resolution, independent of your screen or GPU speed. For film work: the <b>PNG sequence</b> imports into DaVinci Resolve as lossless footage (drag the unzipped folder into the media pool). Keep this tab focused while rendering. Drift mode, if on, is captured deterministically.</div>
+  <div class="onote">Offline render — every frame is computed at exact time steps at full resolution, and every frame carries an explicit timestamp, so <b>the clip is exactly the duration you set</b>. Video uses your GPU’s hardware encoder (best in Chrome; needs internet once to fetch the muxer). For film work: the <b>PNG sequence</b> imports into DaVinci Resolve as lossless footage (drag the unzipped folder into the media pool). Keep this tab focused while rendering. Drift, smears, and ripples are captured deterministically.</div>
   <div id="renderForm">
     <div class="rf"><label>Resolution</label>
       <div class="seg" id="segRes">
@@ -392,6 +393,11 @@ vec3 postfx(vec2 uv, vec2 vuv, vec2 px, float t){
 /* -------- control schema -------- */
 const CTLS = [
   {k:"speed",   u:"uSpeed",   label:"Speed",       min:0,max:3,   step:.01, group:"Motion"},
+  {k:"brushSize",u:"",         label:"Brush Size",  min:.04,max:.45,step:.005,group:"Paint", jsOnly:true},
+  {k:"smearStr", u:"",         label:"Smear Strength",min:.2,max:3,step:.01, group:"Paint", jsOnly:true},
+  {k:"persist",  u:"",         label:"Persistence", min:0,max:1,   step:.01, group:"Paint", jsOnly:true},
+  {k:"pspread",  u:"",         label:"Spread",      min:0,max:1,   step:.01, group:"Paint", jsOnly:true},
+  {k:"pflow",    u:"",         label:"Paint Flow",  min:0,max:1,   step:.01, group:"Paint", jsOnly:true},
   {k:"driftSpd",u:"",         label:"Drift Speed", min:1,max:10,  step:.1,  group:"Motion", jsOnly:true},
   {k:"driftAmt",u:"",         label:"Drift Depth", min:0,max:1,   step:.01, group:"Motion", jsOnly:true},
 
@@ -439,7 +445,7 @@ const CTLS = [
   {k:"grain",   u:"uGrain",   label:"Grain",       min:0,max:1,   step:.01, group:"Post"},
   {k:"vignette",u:"uVignette",label:"Vignette",    min:0,max:1,   step:.01, group:"Post"},
 ];
-const GROUP_ORDER = ["Space","Field","Light","Color","Post","Motion"];
+const GROUP_ORDER = ["Space","Field","Light","Color","Post","Paint","Motion"];
 const byKey = {}; CTLS.forEach(c=>byKey[c.k]=c);
 
 function uniformKeysForMode(m){
@@ -471,6 +477,10 @@ const LESSONS = {
     text:"After the scene is colored, it goes through a finishing pass — same idea as your grade in Resolve. Chroma Split renders the scene three times at slightly different scales, once per color channel: that's the lens-fringing rainbow at edges. Glow lifts already-bright areas (col + col² is a cheap bloom). Grain is per-pixel random noise. Sparkle scatters twinkling glints on top. Fibers multiplies the color by thousands of hair-thin radial filaments — multiplying instead of adding is why the strands live inside the glow rather than floating over it. BG Tint and BG Light (in Color) pour a colored floor into only the darks.",
     code:"col.r = scene(uv*(1.0+ca), t).r;  // three scenes,\ncol.g = scene(uv, t).g;           // three slightly\ncol.b = scene(uv*(1.0-ca), t).b;  // different sizes"
   },
+  Paint: {
+    text:"This is the liquid light show system. In the 60s, artists projected oil and dye pressed between glass plates — when you pushed the oil, it STAYED pushed, crept along its own currents, and bled at the edges. Here, a hidden texture remembers the accumulated displacement of every smear you make in Perform mode. Persistence at 1 means strokes never heal; Paint Flow lets the paint slide along itself like settling oil; Spread bleeds strokes outward. Clear wipes the plate.",
+    code:"d = read(uv - d*flow);            // paint rides its own current\nd += stroke * exp(-dist*dist/r/r); // your finger deposits, permanently\nuv += d;                           // the image bends through the paint"
+  },
   Motion: {
     text:"Time reaches the shader as one number, t, and Speed just multiplies it. The ~ button beside any slider makes that value drift — it breathes around where you set it on a slow sine wave, and each control gets its own tempo and phase so nothing moves in lockstep. Hue is special: it circles the color wheel instead. Drift Speed (1–10) is the metronome for all of it, Depth is how far things swing. It's all driven by the same clock, so a Render Clip captures the exact same drift every time.",
     code:"// each drifting slider does this, at its own tempo f and phase ph:\ne[k] = value + range*0.12*depth*sin(T*f + ph);\ne.hue = value + T*0.004*speed*depth;   // hue circles instead"
@@ -478,7 +488,7 @@ const LESSONS = {
 };
 
 /* -------- shared defaults -------- */
-const D0 = {speed:1,zoom:1,symmetry:1,warp:1,flow:1,spectrum:1,hue:0,sat:1.1,glow:.6,chroma:.8,sparkle:0,grain:.28,vignette:.5,driftSpd:3,driftAmt:.5,
+const D0 = {brushSize:.16,smearStr:1.2,persist:1,pspread:.12,pflow:.1,speed:1,zoom:1,symmetry:1,warp:1,flow:1,spectrum:1,hue:0,sat:1.1,glow:.6,chroma:.8,sparkle:0,grain:.28,vignette:.5,driftSpd:3,driftAmt:.5,
             core:0,coreSize:.4,ring:0,ringPos:.45,ringWidth:.4,horizon:0,horizonY:0,
             tube:0,fibers:0,bgHue:.6,bgLight:0,rot:0,twist:0,mirx:0,miry:0};
 
@@ -988,13 +998,19 @@ const VERT = "attribute vec2 aP; void main(){ gl_Position = vec4(aP,0.0,1.0); }"
 
 function headerFor(keys){
   let u = "precision highp float;\nuniform vec2 uRes; uniform float uTime; uniform vec2 uMouse; uniform vec3 uTap;\n";
-  u += "uniform vec4 uSmearPts[12];\nuniform vec3 uRipplePts[8];\n";
+  u += "uniform vec3 uRipplePts[8];\nuniform sampler2D uPaint;\n";
   for(const k of keys) u += "uniform float "+byKey[k].u+";\n";
   return u;
 }
 const APP_MAIN = `
 void main(){
   vec2 uv = (gl_FragCoord.xy - 0.5*uRes)/uRes.y;
+  // PAINT — the persistent smear field (liquid light show): a texture
+  // remembers every stroke like oil pressed between glass plates
+  vec4 pt4 = texture2D(uPaint, gl_FragCoord.xy/uRes);
+  vec2 pd = vec2(dot(pt4.rg, vec2(1.0, 1.0/255.0)),
+                 dot(pt4.ba, vec2(1.0, 1.0/255.0)))*2.0 - 1.0;
+  uv += vec2(pd.x*(uRes.x/uRes.y), pd.y) * 0.65;
   uv /= uZoom;
   uv += uMouse*0.35;
   float cr = cos(uRot), sr = sin(uRot);        // ROTATE
@@ -1004,11 +1020,6 @@ void main(){
   uv = r0*vec2(cos(ang0), sin(ang0));
   if(uMirX > 0.5) uv.x = abs(uv.x);             // MIRRORS
   if(uMirY > 0.5) uv.y = abs(uv.y);
-  // SMEAR — your drags push space around like wet paint (heals over time)
-  for(int i=0;i<12;i++){
-    vec2 dv = uv - uSmearPts[i].xy;
-    uv -= uSmearPts[i].zw * exp(-dot(dv,dv)*16.0);
-  }
   // RIPPLE — your taps send shockwave rings through space
   for(int i=0;i<8;i++){
     if(uRipplePts[i].z > 0.0){
@@ -1022,17 +1033,21 @@ void main(){
   uv = kaleido(uv, uSymmetry);
   vec2 suv = uv;                       // screen space, kept for lights/vignette
   float tubeR = length(uv);
-  if(uTube > 0.5){                     // TUBE — wrap the picture into a tunnel:
-    float ta = atan(uv.y, uv.x);       // angle wraps around the wall; depth
-    float depth = 0.35/(tubeR + 0.05) + uTime*uSpeed*0.6;   // 1/radius = ahead
-    float w = abs(fract(depth*0.25)*2.0 - 1.0);  // ping-pong: the portal tiles
-    uv = vec2((abs(ta)*0.6366 - 0.5)*1.6,        // seamlessly down the tube
-              (w - 0.5)*1.8);
-  }
-  vec3 col = postfx(uv, suv, gl_FragCoord.xy, uTime*uSpeed);
-  if(uTube > 0.5){                     // deep walls, blinding far end
-    col *= 0.22 + 0.78*smoothstep(0.0, 0.5, tubeR);
-    col += vec3(1.0,0.96,0.9) * exp(-tubeR*5.0) * 1.1;
+  vec3 col;
+  if(uTube > 0.5){                     // TUBE — wrap the picture into a tunnel.
+    float ta = atan(uv.y, uv.x);       // Two copies of the portal scroll FORWARD,
+    float ax = (abs(ta)*0.6366 - 0.5)*1.6;   // half a tile apart; each fades out
+    float depth = 0.35/(tubeR + 0.05) + uTime*uSpeed*0.6;  // where its seam would show.
+    float d1 = fract(depth*0.25);
+    float d2 = fract(depth*0.25 + 0.5);
+    float bw = abs(d1 - 0.5)*2.0;      // 0 mid-tile, 1 at the seam
+    vec3 colA = postfx(vec2(ax,(d1-0.5)*1.8), suv, gl_FragCoord.xy, uTime*uSpeed);
+    vec3 colB = postfx(vec2(ax,(d2-0.5)*1.8), suv, gl_FragCoord.xy, uTime*uSpeed);
+    col = mix(colA, colB, bw);
+    col *= 0.22 + 0.78*smoothstep(0.0, 0.5, tubeR);   // deep walls,
+    col += vec3(1.0,0.96,0.9) * exp(-tubeR*5.0) * 1.1; // blinding far end
+  } else {
+    col = postfx(uv, suv, gl_FragCoord.xy, uTime*uSpeed);
   }
   gl_FragColor = vec4(col, 1.0);
 }`;
@@ -1058,7 +1073,7 @@ function buildProgram(src, keys){
   gl.linkProgram(p);
   if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
   const locs = { uRes:gl.getUniformLocation(p,"uRes"), uTime:gl.getUniformLocation(p,"uTime"), uMouse:gl.getUniformLocation(p,"uMouse"), uTap:gl.getUniformLocation(p,"uTap"),
-    uSmearPts:gl.getUniformLocation(p,"uSmearPts[0]"), uRipplePts:gl.getUniformLocation(p,"uRipplePts[0]") };
+    uRipplePts:gl.getUniformLocation(p,"uRipplePts[0]"), uPaint:gl.getUniformLocation(p,"uPaint") };
   for(const k of keys) locs[k] = gl.getUniformLocation(p, byKey[k].u);
   return {prog:p, locs, keys, aP:gl.getAttribLocation(p,"aP")};
 }
@@ -1170,7 +1185,7 @@ function setPointer(e){
 let dragging=false;
 const tapState={x:0,y:0,t:0};
 const activePtrs=new Map();
-let pinch0=null, lastSmear=null, lastRipple={x:99,y:99};
+let pinch0=null, lastRipple={x:99,y:99};
 
 // map a screen point through the same space-bends the shader applies
 function toScene(cx, cy){
@@ -1201,7 +1216,8 @@ canvas.addEventListener("pointerdown", e=>{
   dragging=true; setPointer(e); if(performOn) hud(true);
   const [sx,sy]=toScene(e.clientX,e.clientY);
   tapState.x=sx; tapState.y=sy; tapState.t=simTime;
-  lastSmear={x:sx,y:sy};
+  const rc0=canvas.getBoundingClientRect();
+  lastBrush={x:(e.clientX-rc0.left)/rc0.width, y:1-(e.clientY-rc0.top)/rc0.height};
   if(performOn && performTool==="ripple"){ addRipple(sx,sy); lastRipple={x:sx,y:sy}; }
 });
 canvas.addEventListener("pointermove", e=>{
@@ -1215,9 +1231,15 @@ canvas.addEventListener("pointermove", e=>{
   }
   if(!dragging) return;
   if(performOn && performTool==="smear"){
-    const [sx,sy]=toScene(e.clientX,e.clientY);
-    const dx=sx-lastSmear.x, dy=sy-lastSmear.y;
-    if(Math.hypot(dx,dy)>0.004){ addSmear(lastSmear.x,lastSmear.y,dx,dy); lastSmear={x:sx,y:sy}; hudText(); }
+    if(activePtrs.size>1) return;                    // pinching, not painting
+    const rc=canvas.getBoundingClientRect();
+    const nx=(e.clientX-rc.left)/rc.width, ny=1-(e.clientY-rc.top)/rc.height;
+    if(!lastBrush){ lastBrush={x:nx,y:ny}; return; } // re-anchor after a pinch
+    const dx=nx-lastBrush.x, dy=ny-lastBrush.y;
+    if(Math.hypot(dx,dy)>0.002){
+      brushQueue.push({ax:lastBrush.x, ay:lastBrush.y, bx:nx, by:ny, dx, dy});
+      lastBrush={x:nx, y:ny}; hudText();
+    }
     return;
   }
   if(performOn && performTool==="ripple"){
@@ -1229,36 +1251,155 @@ canvas.addEventListener("pointermove", e=>{
 });
 function ptrEnd(e){
   activePtrs.delete(e.pointerId);
-  if(activePtrs.size<2) pinch0=null;
-  if(activePtrs.size===0){ dragging=false; mouse.tx=0; mouse.ty=0; hud(false); }
+  if(activePtrs.size<2){ if(pinch0) lastBrush=null; pinch0=null; }
+  if(activePtrs.size===0){ dragging=false; lastBrush=null; mouse.tx=0; mouse.ty=0; hud(false); }
 }
 canvas.addEventListener("pointerup", ptrEnd);
 canvas.addEventListener("pointercancel", ptrEnd);
 
-/* -------- smear + ripple stores (perform tools) -------- */
-const smears = [];        // {x,y,dx,dy,t} — decays in ~2s
+/* -------- ripple store (perform tool) -------- */
 const ripples = [];       // {x,y,t}      — rings live ~4s
-const smearArr = new Float32Array(48);
 const rippleArr = new Float32Array(24);
-function addSmear(x,y,dx,dy){
-  const len=Math.hypot(dx,dy)||1e-6, cap=Math.min(len,0.05)/len;
-  smears.push({x,y,dx:dx*cap*0.9,dy:dy*cap*0.9,t:simTime});
-  if(smears.length>12) smears.shift();
-}
 function addRipple(x,y){
   ripples.push({x,y,t:simTime});
   if(ripples.length>8) ripples.shift();
+}
+
+/* -------- persistent paint field (liquid light show) --------
+   A 512x512 texture remembers the accumulated displacement of
+   every smear — oil pressed between glass plates. Each frame:
+   the paint advects along itself (Flow), bleeds (Spread), keeps
+   or slowly forgets (Persistence), and your strokes deposit in. */
+const PAINT_RES = 512;
+const PAINT_FS = `
+precision highp float;
+uniform sampler2D uPrev;
+uniform vec2 uPRes;
+uniform float uPx, uAspect, uMode, uPersist, uSpread, uPFlow, uBrushOn, uBr;
+uniform vec2 uBa, uBb, uBd;
+vec2 pack(float v){ vec2 pp = fract(vec2(1.0,255.0)*v); pp.x -= pp.y/255.0; return pp; }
+float unpack(vec2 pp){ return dot(pp, vec2(1.0, 1.0/255.0)); }
+vec2 readD(vec2 uv){ vec4 t = texture2D(uPrev, uv); return vec2(unpack(t.rg), unpack(t.ba))*2.0 - 1.0; }
+void main(){
+  vec2 uv = gl_FragCoord.xy / uPRes;
+  if(uMode < 0.5){ vec2 z = pack(0.5); gl_FragColor = vec4(z, z); return; }
+  vec2 d0 = readD(uv);
+  vec2 src = uv - d0 * uPFlow * 0.01;              // paint rides its own current
+  vec2 d = readD(src);
+  vec2 e = vec2(uPx, 0.0);
+  vec2 davg = (readD(src+e.xy) + readD(src-e.xy) + readD(src+e.yx) + readD(src-e.yx)) * 0.25;
+  d = mix(d, davg, uSpread*0.25);                  // oil bleeding outward
+  d *= uPersist;                                   // 1.0 = never heals
+  if(uBrushOn > 0.5){
+    vec2 asp = vec2(uAspect, 1.0);
+    vec2 ab = (uBb - uBa)*asp;
+    vec2 ap = (uv - uBa)*asp;
+    float h = clamp(dot(ap, ab)/max(dot(ab,ab), 1e-6), 0.0, 1.0);
+    float dist = length(ap - ab*h);
+    float infl = exp(-dist*dist/(uBr*uBr));
+    d += uBd * infl;                               // the stroke deposits, permanently
+  }
+  d = clamp(d, -0.9, 0.9);
+  vec2 dv = d*0.5 + 0.5;
+  gl_FragColor = vec4(pack(dv.x), pack(dv.y));
+}`;
+let paintProg=null, paintLocs=null, paintTexA=null, paintTexB=null, paintFboA=null, paintFboB=null;
+const brushQueue=[]; let lastBrush=null;
+function makePaintTex(){
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, PAINT_RES, PAINT_RES, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  return t;
+}
+function initPaint(){
+  try{
+    const vs = compile(gl.VERTEX_SHADER, VERT);
+    const fs = compile(gl.FRAGMENT_SHADER, PAINT_FS);
+    paintProg = gl.createProgram();
+    gl.attachShader(paintProg, vs); gl.attachShader(paintProg, fs);
+    gl.linkProgram(paintProg);
+    if(!gl.getProgramParameter(paintProg, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(paintProg));
+    paintLocs = {};
+    for(const n of ["uPrev","uPRes","uPx","uAspect","uMode","uPersist","uSpread","uPFlow","uBrushOn","uBr","uBa","uBb","uBd"])
+      paintLocs[n] = gl.getUniformLocation(paintProg, n);
+    paintLocs.aP = gl.getAttribLocation(paintProg, "aP");
+    paintTexA = makePaintTex(); paintTexB = makePaintTex();
+    paintFboA = gl.createFramebuffer(); paintFboB = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, paintFboA);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, paintTexA, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, paintFboB);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, paintTexB, 0);
+    clearPaint(true);
+  }catch(err){
+    console.warn("paint field unavailable:", err);
+    paintProg = null;
+    // neutral 1x1 fallback so the main shader still samples zero displacement
+    paintTexA = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, paintTexA);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([127,128,127,128]));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+function paintPass(brush, mode){
+  gl.useProgram(paintProg);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, paintFboB);
+  gl.viewport(0,0,PAINT_RES,PAINT_RES);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, paintTexA);
+  gl.uniform1i(paintLocs.uPrev, 0);
+  gl.uniform2f(paintLocs.uPRes, PAINT_RES, PAINT_RES);
+  gl.uniform1f(paintLocs.uPx, 1/PAINT_RES);
+  gl.uniform1f(paintLocs.uAspect, canvas.width/Math.max(canvas.height,1));
+  gl.uniform1f(paintLocs.uMode, mode===undefined?1:mode);
+  gl.uniform1f(paintLocs.uPersist, 0.90 + 0.10*Math.min(vals.persist??1,1));
+  gl.uniform1f(paintLocs.uSpread, vals.pspread??.12);
+  gl.uniform1f(paintLocs.uPFlow, vals.pflow??.1);
+  if(brush){
+    gl.uniform1f(paintLocs.uBrushOn, 1);
+    gl.uniform2f(paintLocs.uBa, brush.ax, brush.ay);
+    gl.uniform2f(paintLocs.uBb, brush.bx, brush.by);
+    gl.uniform1f(paintLocs.uBr, vals.brushSize??.09);
+    const st = vals.smearStr??1.2;
+    gl.uniform2f(paintLocs.uBd, brush.dx*st, brush.dy*st);
+  } else {
+    gl.uniform1f(paintLocs.uBrushOn, 0);
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.enableVertexAttribArray(paintLocs.aP);
+  gl.vertexAttribPointer(paintLocs.aP,2,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  let t=paintTexA; paintTexA=paintTexB; paintTexB=t;
+  let f=paintFboA; paintFboA=paintFboB; paintFboB=f;
+}
+function stepPaint(){
+  if(!paintProg) return;
+  if(brushQueue.length){
+    let n=0;
+    while(brushQueue.length && n<6){ paintPass(brushQueue.shift(), 1); n++; }
+    brushQueue.length = 0;
+  } else {
+    paintPass(null, 1);
+  }
+}
+function clearPaint(quiet){
+  if(!paintProg) return;
+  paintPass(null, 0); paintPass(null, 0);   // init both buffers to neutral
+  brushQueue.length = 0;
+  if(!quiet) say("Paint cleared");
 }
 
 /* -------- draw -------- */
 function draw(){
   const P = getProgram(cur);
   const e = effective();
-  smearArr.fill(0);
-  for(let i=0;i<smears.length;i++){
-    const s=smears[i], k=Math.exp(-(simTime-s.t)*1.5);
-    if(k>0.01) smearArr.set([s.x,s.y,s.dx*k,s.dy*k], i*4);
-  }
+  stepPaint();                              // advance the liquid-light field
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   rippleArr.fill(0);
   for(let i=0;i<ripples.length;i++){
     const r=ripples[i];
@@ -1273,8 +1414,12 @@ function draw(){
   gl.uniform1f(P.locs.uTime, simTime);
   gl.uniform2f(P.locs.uMouse, mouse.x, mouse.y);
   if(P.locs.uTap) gl.uniform3f(P.locs.uTap, tapState.x, tapState.y, tapState.t);
-  if(P.locs.uSmearPts) gl.uniform4fv(P.locs.uSmearPts, smearArr);
   if(P.locs.uRipplePts) gl.uniform3fv(P.locs.uRipplePts, rippleArr);
+  if(P.locs.uPaint && paintTexA){
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, paintTexA);
+    gl.uniform1i(P.locs.uPaint, 0);
+  }
   for(const k of P.keys){
     const v = e[k] !== undefined ? e[k] : (byKey[k].min||0);
     if(P.locs[k]) gl.uniform1f(P.locs[k], v);
@@ -1298,6 +1443,7 @@ function frame(now){
   }
   requestAnimationFrame(frame);
 }
+initPaint();
 requestAnimationFrame(frame);
 
 /* -------- portal selection -------- */
@@ -1391,6 +1537,12 @@ function buildSliders(){
       body.appendChild(wrap);
       inputs[k]={sync:()=>{ inp.value=vals[k]; paint(); }};
     });
+    if(g==="Paint"){
+      const row=document.createElement("div"); row.className="driftAll";
+      const cb=document.createElement("button"); cb.className="btn"; cb.textContent="Clear Paint";
+      cb.onclick=()=>clearPaint();
+      row.append(cb); body.appendChild(row);
+    }
     if(g==="Motion"){
       const row=document.createElement("div"); row.className="driftAll";
       const on=document.createElement("button"); on.className="btn"; on.textContent="Drift All ~";
@@ -1507,16 +1659,21 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
   uv = kaleido(uv, uSymmetry);
   vec2 suv = uv;
   float tubeR = length(uv);
+  vec3 col;
   if(uTube > 0.5){
     float ta = atan(uv.y, uv.x);
+    float ax = (abs(ta)*0.6366 - 0.5)*1.6;
     float depth = 0.35/(tubeR + 0.05) + uTime*uSpeed*0.6;
-    float w = abs(fract(depth*0.25)*2.0 - 1.0);
-    uv = vec2((abs(ta)*0.6366 - 0.5)*1.6, (w - 0.5)*1.8);
-  }
-  vec3 col = postfx(uv, suv, fragCoord, uTime*uSpeed);
-  if(uTube > 0.5){
+    float d1 = fract(depth*0.25);
+    float d2 = fract(depth*0.25 + 0.5);
+    float bw = abs(d1 - 0.5)*2.0;
+    vec3 colA = postfx(vec2(ax,(d1-0.5)*1.8), suv, fragCoord, uTime*uSpeed);
+    vec3 colB = postfx(vec2(ax,(d2-0.5)*1.8), suv, fragCoord, uTime*uSpeed);
+    col = mix(colA, colB, bw);
     col *= 0.22 + 0.78*smoothstep(0.0, 0.5, tubeR);
     col += vec3(1.0,0.96,0.9) * exp(-tubeR*5.0) * 1.1;
+  } else {
+    col = postfx(uv, suv, fragCoord, uTime*uSpeed);
   }
   fragColor = vec4(col, 1.0);
 }`;
@@ -1604,7 +1761,7 @@ selY.onchange=()=>{ performMap.y=selY.value; pfTarget.y=null; };
 
 function hud(on){ pfHud.classList.toggle("on", !!on && performOn); }
 function hudText(){
-  if(performTool==="smear"){ pfHud.textContent="smear — drag to push the light"; return; }
+  if(performTool==="smear"){ pfHud.textContent="smear — paint sticks like oil · Clear wipes the plate"; return; }
   if(performTool==="ripple"){ pfHud.textContent="ripple — tap or drag to send waves"; return; }
   const m = effMap();
   pfHud.textContent = byKey[m.x].label+" "+(+vals[m.x]).toFixed(2)
@@ -1629,8 +1786,9 @@ function exitPerform(){
 }
 document.getElementById("bPerform").onclick=enterPerform;
 document.getElementById("pfExit").onclick=exitPerform;
+document.getElementById("pfClear").onclick = ()=>{ clearPaint(); };
 document.getElementById("pfTools").addEventListener("click", e=>{
-  const b=e.target.closest("button"); if(!b) return;
+  const b=e.target.closest("button"); if(!b || !b.dataset.tool) return;
   for(const x of b.parentElement.children) x.classList.remove("on");
   b.classList.add("on");
   performTool=b.dataset.tool;
@@ -1732,34 +1890,54 @@ bGo.onclick=async ()=>{
 
   try{
     if(rOpts.fmt==="video"){
-      if(!canvas.captureStream || !window.MediaRecorder) throw new Error("Video capture not supported in this browser — use PNG frames");
-      let stream, track, canStep=false;
-      try{ stream=canvas.captureStream(0); track=stream.getVideoTracks()[0]; canStep=typeof track.requestFrame==="function"; }catch(e){}
-      if(!canStep) stream=canvas.captureStream(rOpts.fps);
-      const mime=pickMime();
-      const br=rOpts.w>=3840?60e6 : rOpts.w>=2560?35e6 : 20e6;
-      const rec=new MediaRecorder(stream, mime?{mimeType:mime,videoBitsPerSecond:br}:{videoBitsPerSecond:br});
-      const parts=[]; rec.ondataavailable=e=>{ if(e.data.size) parts.push(e.data); };
-      const done=new Promise(res=>rec.onstop=res);
-      rec.start();
+      // WebCodecs offline encode — every frame gets an EXPLICIT timestamp
+      // (frame N = N/fps seconds), so the clip is exactly the length you asked,
+      // no matter how fast or slow the render runs.
+      if(!("VideoEncoder" in window)) throw new Error("This browser lacks WebCodecs — use Chrome, or PNG frames");
+      const br = RW>=3840?60e6 : RW>=2560?35e6 : 20e6;
+      let useMp4 = true;
+      let cfg = {codec:"avc1.640033", width:RW, height:RH, bitrate:br, framerate:rOpts.fps};
+      let sup = await VideoEncoder.isConfigSupported(cfg).catch(()=>({supported:false}));
+      if(!sup.supported){
+        useMp4 = false;
+        cfg = {codec:"vp09.00.10.08", width:RW, height:RH, bitrate:br, framerate:rOpts.fps};
+        sup = await VideoEncoder.isConfigSupported(cfg).catch(()=>({supported:false}));
+        if(!sup.supported) throw new Error("No supported hardware encoder — use PNG frames");
+      }
+      progTxt.textContent="loading muxer…";
+      if(useMp4 && !window.Mp4Muxer) await loadScript("https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.1/build/mp4-muxer.min.js");
+      if(!useMp4 && !window.WebMMuxer) await loadScript("https://cdn.jsdelivr.net/npm/webm-muxer@5.0.3/build/webm-muxer.min.js");
+      const muxer = useMp4
+        ? new Mp4Muxer.Muxer({target:new Mp4Muxer.ArrayBufferTarget(), video:{codec:"avc", width:RW, height:RH}, fastStart:"in-memory"})
+        : new WebMMuxer.Muxer({target:new WebMMuxer.ArrayBufferTarget(), video:{codec:"V_VP9", width:RW, height:RH}});
+      const enc = new VideoEncoder({
+        output:(chunk,meta)=>muxer.addVideoChunk(chunk,meta),
+        error:e=>{ console.error(e); }
+      });
+      enc.configure(cfg);
       for(let f=0; f<frames && !cancelRender; f++){
-        simTime=t0+f/rOpts.fps;
+        simTime = t0 + f/rOpts.fps;
         draw();
-        if(canStep) track.requestFrame();
-        prog(f+1,"frame "+(f+1)+" / "+frames+(canStep?"":" · realtime fallback"));
-        await nextFrame();
-        if(!canStep) await wait(Math.max(0,1000/rOpts.fps-8));
+        const vf = new VideoFrame(canvas, {timestamp:Math.round(f*1e6/rOpts.fps), duration:Math.round(1e6/rOpts.fps)});
+        enc.encode(vf, {keyFrame: f % (rOpts.fps*2) === 0});
+        vf.close();
+        while(enc.encodeQueueSize > 4 && !cancelRender) await wait(5);   // backpressure: memory stays flat
+        prog(f+1, "frame "+(f+1)+" / "+frames);
+        if((f & 3) === 0) await nextFrame();
       }
-      await wait(250); rec.stop(); await done;
       if(!cancelRender){
-        const ext=(rec.mimeType||"").includes("mp4")?"mp4":"webm";
-        const blob=new Blob(parts,{type:rec.mimeType||"video/webm"});
+        progTxt.textContent="finishing encode…";
+        await enc.flush();
+        muxer.finalize();
+        const blob = new Blob([muxer.target.buffer], {type: useMp4?"video/mp4":"video/webm"});
         const a=document.createElement("a");
-        a.download="iris-"+cur.id+"-"+RH+"p"+rOpts.fps+"-"+Date.now()+"."+ext;
+        a.download="iris-"+cur.id+"-"+RH+"p"+rOpts.fps+"-"+Date.now()+(useMp4?".mp4":".webm");
         a.href=URL.createObjectURL(blob); a.click();
-        say("Rendered "+frames+" frames · "+ext.toUpperCase());
-      }
+        say("Rendered "+frames+" frames · exactly "+rOpts.dur+"s · "+(useMp4?"MP4":"WebM"));
+      } else { try{ enc.close(); }catch(_){ } }
     } else {
+      const estMB = frames*(RW>=3840?9 : RW>=2560?5 : 2.8);
+      if(estMB > 1500) throw new Error("~"+(estMB/1000).toFixed(1)+" GB of PNGs would exhaust memory — use Video, or 1080p / shorter batches");
       if(!window.JSZip){
         progTxt.textContent="loading zip library…";
         await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js");
