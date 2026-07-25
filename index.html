@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<link rel="manifest" href='data:application/manifest+json,{"name":"IRIS Portal Lab","short_name":"IRIS","display":"standalone","background_color":"%23FDFCF8","theme_color":"%23141416","start_url":"."}'>
-<title>IRIS · Portal Lab</title>
+<link rel="manifest" href='data:application/manifest+json,{"name":"Trip Out","short_name":"Trip Out","display":"standalone","background_color":"%23FDFCF8","theme_color":"%23141416","start_url":"."}'>
+<title>Trip Out</title>
 <style>
   :root{
     --paper:#FDFCF8;
@@ -91,6 +91,20 @@
   .dw.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
   .driftAll{grid-column:1/-1;display:flex;gap:6px;padding-top:4px}
   .driftAll .btn{flex:1;padding:9px 4px}
+  .actions .wide{grid-column:1/-1}
+  #bMusic.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .musHead{display:flex;flex-direction:column;gap:7px;margin:2px 0 8px}
+  .meters{display:flex;gap:4px;height:15px;align-items:flex-end}
+  .meters i{width:16px;background:var(--ink);display:block;height:2px;transition:height .05s linear}
+  .mrow{display:flex;gap:6px;align-items:center}
+  .mrow .btn{flex:1}
+  .msel{flex:1;border:1px solid var(--rule);background:var(--paper);color:var(--ink);
+    font-family:var(--mono);font-size:11px;padding:6px;max-width:100%}
+  .mrow .btn.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .ctl.routed{grid-template-columns:1fr auto auto auto}
+  .rt{border:1px solid var(--rule);background:var(--paper);color:var(--dim);min-width:24px;height:17px;
+    font-family:var(--mono);font-size:10px;line-height:1;cursor:pointer;padding:0 3px;align-self:center}
+  .rt.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 
   .ctl.toggle{grid-template-columns:1fr auto;padding:8px 0;align-items:center}
   .sw{width:32px;height:17px;border-radius:999px;background:var(--rule);position:relative;cursor:pointer;border:0;flex:none;transition:background .2s}
@@ -205,8 +219,8 @@
 
 <div id="panel">
   <div class="dockhead">
-    <div class="mark">IR<i>I</i>S</div>
-    <div class="tag">Portal lab<br>Real GLSL, live<br>Learn by touching</div>
+    <div class="mark">TR<i>I</i>P OUT</div>
+    <div class="tag">Portal instrument<br>Real GLSL, live<br>Play it like a rig</div>
   </div>
   <button id="grab" aria-label="Show or hide controls"><span class="bar"></span><span class="lbl" id="grabLbl">hide controls</span></button>
 
@@ -235,13 +249,14 @@
   </div>
 
   <div class="actions">
+    <button class="btn wide" id="bMusic">♪ Music</button>
     <button class="btn" id="bPlay">Pause</button>
     <button class="btn" id="bRand">Randomize</button>
     <button class="btn" id="bPng">Still</button>
     <button class="btn rec" id="bRec">Rec Live</button>
     <button class="btn prime" id="bRender">Render Clip</button>
     <button class="btn" id="bCode">The Glass</button>
-    <button class="btn prime" id="bPerform">Perform ⛶</button>
+    <button class="btn prime" id="bPerform">DJ Mode ⛶</button>
     <button class="btn" id="bShare">Share Look</button>
   </div>
 </div>
@@ -255,6 +270,7 @@
   <button data-tool="smear">Smear</button>
   <button data-tool="ripple">Ripple</button>
   <button data-tool="spin">Spin</button>
+  <button id="pfMusic" title="Music mode">♪</button>
   <button id="pfClear" title="Clear paint">Clear</button>
 </div>
 <div id="pfHud"></div>
@@ -315,7 +331,7 @@
 <script>
 "use strict";
 /* ============================================================
-   IRIS · Portal Lab v3
+   TRIP OUT v4 — © Kimberly Locke. All rights reserved.
    white editorial UI · editable live GLSL · drift mode
    fireworks · blank-canvas-first learning
    ============================================================ */
@@ -353,16 +369,69 @@ float stars(vec2 uv, float t){
 }
 `;
 
+const GLSL_STARFIELD = `
+// STARFIELD — points at rest, long-exposure arcs under Warp Streak
+float starCell(vec2 g, float thr, float sharp, float t){
+  vec2 id = floor(g), f = fract(g) - 0.5;
+  float h = hash(id + 7.7);
+  vec2 off = (vec2(hash(id+1.3), hash(id+2.9)) - 0.5)*0.75;
+  float d = length(f - off);
+  float tw = 0.55 + 0.45*sin(t*(1.0 + hash(id+5.1)*3.5) + hash(id)*6.28318);
+  return step(thr, h) * exp(-d*d*sharp) * tw;
+}
+float starPts(vec2 p, float t){
+  float s = 0.0;                       // razor-sharp specks, like the Galaxy portal
+  s += starCell(p*14.0 + 11.0, 0.94, 240.0, t)*1.1;    // a few bright stars
+  s += starCell(p*26.0 + 37.0, 0.91, 380.0, t)*0.8;    // mid field
+  s += starCell(p*46.0 + 71.0, 0.885, 560.0, t)*0.55;  // fine dust
+  return s;
+}
+float starArcs(vec2 p, float amt){
+  float r = length(p) + 0.06;
+  float a = atan(p.y, p.x);
+  float lr = log(r)*9.0;
+  float row = floor(lr);
+  float per = mix(26.0, 7.0, clamp(amt/1.5, 0.0, 1.0));  // longer arcs as streak rises
+  float seg = 6.28318/per;
+  float a2 = a + hash(vec2(row, 1.0))*6.28318;           // each ring offset
+  float ai = floor(a2/seg);
+  float af = fract(a2/seg);
+  vec2 id = vec2(row, ai);
+  float h = hash(id*1.7 + 3.1);
+  float rl = fract(lr) - 0.5 - (hash(id+9.0)-0.5)*0.5;
+  float thin = exp(-rl*rl*140.0);                        // hair-thin in radius
+  float ends = smoothstep(0.0,0.18,af)*smoothstep(1.0,0.82,af);
+  float dash = 0.72 + 0.28*sin(af*34.0 + h*40.0);        // dashed, like the exposure
+  return step(0.55, h) * thin * ends * dash * (0.35 + 0.65*hash(id+4.2));
+}
+float starLayer(vec2 p, float t){
+  float base = starPts(p, t);
+  if(uStreak > 0.001){
+    float sk = clamp(uStreak/1.5, 0.0, 1.0);
+    return mix(base, starArcs(p, uStreak)*1.5, sk);
+  }
+  return base;
+}
+`;
 const GLSL_POST = `
 vec3 postfx(vec2 uv, vec2 vuv, vec2 px, float t){
   float ca = uChroma*0.008;                 // chromatic aberration: split RGB
   vec3 col;
-  if(uChroma > 0.001){                      // 3 scene samples only when needed
+  if(uStreak > 0.001){                      // WARP STREAK — hyperspace zoom-blur:
+    vec3 sb = vec3(0.0); float wsum = 0.0;  // stack the scene at shrinking scales
+    for(int i=0;i<5;i++){                   // so all light smears past the camera
+      float fi = float(i)*0.25;
+      float wgt = 1.0 - fi*0.6;
+      sb += scene(uv*(1.0 - fi*0.16*uStreak), t)*wgt;
+      wsum += wgt;
+    }
+    col = sb/wsum;
+  } else if(uChroma > 0.001){               // 3 scene samples only when needed
     col.r = scene(uv*(1.0+ca), t).r;
     col.g = scene(uv, t).g;
     col.b = scene(uv*(1.0-ca), t).b;
   } else {
-    col = scene(uv, t);                     // chroma at 0 = one sample, 3x faster
+    col = scene(uv, t);                     // both at 0 = one sample, fastest
   }
   // BACKGROUND — tinted light that fills only the darks
   col += spectral(uBgHue) * uBgLight * 0.55 * exp(-(col.r+col.g+col.b)*2.5);
@@ -384,6 +453,12 @@ vec3 postfx(vec2 uv, vec2 vuv, vec2 px, float t){
   float l = dot(col, vec3(0.299,0.587,0.114));
   col = mix(vec3(l), col, uSat);            // saturation
   col += vec3(1.0,0.97,0.9) * (stars(vuv,t) + stars(vuv*1.7+31.4,t*1.3)*0.6) * uSparkle * 1.5;
+  // STARS — the observatory layer: a real starfield; Warp Streak
+  // turns it into long-exposure trail arcs
+  if(uStars > 0.001){
+    vec3 stT = mix(vec3(0.72,0.88,1.0), spectral(uHue+0.45), 0.3);
+    col += stT * starLayer(vuv, t) * uStars * 1.4;
+  }
   col *= clamp(1.0 - uVignette*dot(vuv,vuv)*0.9, 0.0, 1.0);
   col += (hash(px + mod(t,100.0)) - 0.5) * uGrain * 0.18;   // film grain
   return col;
@@ -400,10 +475,18 @@ const CTLS = [
   {k:"pflow",    u:"",         label:"Paint Flow",  min:0,max:1,   step:.01, group:"Paint", jsOnly:true},
   {k:"driftSpd",u:"",         label:"Drift Speed", min:1,max:10,  step:.1,  group:"Motion", jsOnly:true},
   {k:"driftAmt",u:"",         label:"Drift Depth", min:0,max:1,   step:.01, group:"Motion", jsOnly:true},
+  {k:"musicAmt", u:"",        label:"Amount",      min:0,max:1,   step:.01, group:"Music", jsOnly:true},
+  {k:"musicSens",u:"",        label:"Sensitivity", min:.3,max:3,  step:.01, group:"Music", jsOnly:true},
+  {k:"beatRipples",u:"",      label:"Beat Ripples",min:0,max:1,   step:1,   group:"Music", jsOnly:true, toggle:true},
 
   {k:"zoom",    u:"uZoom",    label:"Zoom",        min:.35,max:2.5,step:.01,group:"Space"},
   {k:"symmetry",u:"uSymmetry",label:"Kaleidoscope",min:1,max:8,   step:1,   group:"Space"},
   {k:"tube",    u:"uTube",    label:"Tube Flythrough",min:0,max:1,step:1,   group:"Space", toggle:true},
+  {k:"orb",     u:"uOrb",     label:"Orb",         min:0,max:1,   step:1,   group:"Orb", toggle:true},
+  {k:"orbSpin", u:"uOrbSpin", label:"Orb Spin",    min:-2,max:2,  step:.01, group:"Orb"},
+  {k:"orbHard", u:"uOrbHard", label:"Hardness",    min:0,max:1,   step:.01, group:"Orb"},
+  {k:"orbCount",u:"uOrbCount",label:"Orbs",        min:1,max:30,  step:1,   group:"Orb"},
+  {k:"bounce",  u:"uBounce",  label:"Bounce",      min:0,max:1,   step:1,   group:"Orb", toggle:true},
   {k:"rot",     u:"uRot",     label:"Rotate",      min:0,max:6.28,step:.01, group:"Space"},
   {k:"twist",   u:"uTwist",   label:"Twist",       min:-3,max:3,  step:.01, group:"Space"},
   {k:"polar",   u:"uPolar",   label:"Polar Blend", min:0,max:1,   step:.01, group:"Space", free:true},
@@ -440,12 +523,14 @@ const CTLS = [
 
   {k:"glow",    u:"uGlow",    label:"Glow",        min:0,max:2,   step:.01, group:"Post"},
   {k:"chroma",  u:"uChroma",  label:"Chroma Split",min:0,max:3,   step:.01, group:"Post"},
+  {k:"streak",  u:"uStreak",  label:"Warp Streak", min:0,max:1.5, step:.01, group:"Post"},
+  {k:"stars",   u:"uStars",   label:"Stars",       min:0,max:1.5, step:.01, group:"Post"},
   {k:"fibers",  u:"uFibers",  label:"Fibers",      min:0,max:1.5, step:.01, group:"Post"},
   {k:"sparkle", u:"uSparkle", label:"Sparkle",     min:0,max:1.5, step:.01, group:"Post"},
   {k:"grain",   u:"uGrain",   label:"Grain",       min:0,max:1,   step:.01, group:"Post"},
   {k:"vignette",u:"uVignette",label:"Vignette",    min:0,max:1,   step:.01, group:"Post"},
 ];
-const GROUP_ORDER = ["Space","Field","Light","Color","Post","Paint","Motion"];
+const GROUP_ORDER = ["Music","Space","Orb","Field","Light","Color","Post","Paint","Motion"];
 const byKey = {}; CTLS.forEach(c=>byKey[c.k]=c);
 
 function uniformKeysForMode(m){
@@ -458,8 +543,16 @@ function uiKeysForMode(m){
 /* -------- learning notes per group -------- */
 const LESSONS = {
   Space: {
-    text:"A shader runs once for every pixel, and the only thing it knows is that pixel's coordinate — a pair of numbers called p. Everything in this group is just math done to p before anything is drawn: rotating multiplies it by a tiny matrix, mirroring takes an absolute value, twisting adds the radius to the angle. Bend the coordinates, and everything drawn in them bends too. Tube Flythrough is the boldest bend of all: the angle around center becomes around-the-tunnel-wall, 1/radius becomes distance-ahead, and adding time to that distance flies you forward — any portal becomes a wormhole.",
+    text:"A shader runs once for every pixel, and the only thing it knows is that pixel's coordinate — a pair of numbers called p. Everything in this group is just math done to p before anything is drawn: rotating multiplies it by a tiny matrix, mirroring takes an absolute value, twisting adds the radius to the angle. Bend the coordinates, and everything drawn in them bends too. Tube Flythrough is the boldest bend of all: the angle around center becomes around-the-tunnel-wall, 1/radius becomes distance-ahead, and adding time to that distance flies you forward — any portal becomes a wormhole. Orb does the opposite bend: it wraps the portal onto a lit sphere spinning in 3D, floating in your Stars sky. Orb Spin sets how fast it turns (negative = backwards), the DJ Spin tool grabs the same yaw so you spin the planet by hand, and Bounce sends the whole ball ricocheting off the frame edges.",
     code:"if(uMirX > 0.5) p.x = abs(p.x);   // mirror = absolute value\nfloat ang = atan(p.y,p.x) + uTwist*r;  // twist = angle grows with radius"
+  },
+  Music: {
+    text:"Music mode listens with a Fourier transform \u2014 math from 1965, zero AI. Each frame the sound splits into bands: Bass (the kick), Mid (voices, synths), Treble (hats, air), plus a Beat pulse that fires when the low end jumps above its own recent average \u2014 an onset detector, not a model. Auto-gain keeps a whisper and a club PA in the same range, and beats are capped at three per second (a photosensitivity guard venues expect). Amount is the master depth. Auto-Route wires sensible moves for this portal; open Routing to wire any slider yourself \u2014 B, M, T or \u2665 for beat. While Music is on, Drift politely waits.",
+    code:"bins = FFT(microphone)         // sound -> frequencies\nbass = avg(bins[25..150 Hz])\nbeat: bass > 1.45 * rollingAvg // an onset, not AI"
+  },
+  Orb: {
+    text:"Any portal wrapped onto lit 3D spheres. The sphere trick: for a pixel inside the circle, its height off the screen is z = sqrt(R\u00b2-r\u00b2) \u2014 that gives a 3D normal for lighting and a curved lookup into the portal. Orb Spin turns the ball (the DJ Spin tool grabs the same axis, so you can spin it by hand). Hardness is squash-and-stretch: rigid at 1, jelly at 0 \u2014 the ball deforms as it hits walls. Orbs multiplies them: every ball gets its own size, path, and spin phase, and each pixel only ever renders its nearest ball, so thirty cost barely more than one.",
+    code:"z = sqrt(R*R - r*r);        // circle -> sphere\nfor 30 balls: keep the NEAREST // one render per pixel\npos = pingpong(t * myRate)     // each ball, own rhythm"
   },
   Field: {
     text:"noise() gives smooth randomness; fbm() stacks 5 layers of it at doubling frequencies — that's what makes it look like clouds. The trick that makes everything organic is domain warping: use one noise field (A) to push around the coordinates of another (B). Warp is literally how hard A shoves B. Stretch Detail X and Y apart and the noise becomes fibers.",
@@ -474,11 +567,11 @@ const LESSONS = {
     code:"vec3 spectral(float t){\n  return 0.5 + 0.5*cos(6.28318*(t + vec3(0.0, 0.33, 0.67)));\n}"
   },
   Post: {
-    text:"After the scene is colored, it goes through a finishing pass — same idea as your grade in Resolve. Chroma Split renders the scene three times at slightly different scales, once per color channel: that's the lens-fringing rainbow at edges. Glow lifts already-bright areas (col + col² is a cheap bloom). Grain is per-pixel random noise. Sparkle scatters twinkling glints on top. Fibers multiplies the color by thousands of hair-thin radial filaments — multiplying instead of adding is why the strands live inside the glow rather than floating over it. BG Tint and BG Light (in Color) pour a colored floor into only the darks.",
+    text:"After the scene is colored, it goes through a finishing pass — same idea as your grade in Resolve. Chroma Split renders the scene three times at slightly different scales, once per color channel: that's the lens-fringing rainbow at edges. Glow lifts already-bright areas (col + col² is a cheap bloom). Grain is per-pixel random noise. Sparkle scatters twinkling glints on top. Warp Streak stacks the picture at shrinking scales — a zoom-blur — so every light smears past the camera like hyperspace; pair it with Sparkle and the stars become speed lines. Fibers multiplies the color by thousands of hair-thin radial filaments — multiplying instead of adding is why the strands live inside the glow rather than floating over it. BG Tint and BG Light (in Color) pour a colored floor into only the darks.",
     code:"col.r = scene(uv*(1.0+ca), t).r;  // three scenes,\ncol.g = scene(uv, t).g;           // three slightly\ncol.b = scene(uv*(1.0-ca), t).b;  // different sizes"
   },
   Paint: {
-    text:"This is the liquid light show system. In the 60s, artists projected oil and dye pressed between glass plates — when you pushed the oil, it STAYED pushed, crept along its own currents, and bled at the edges. Here, a hidden texture remembers the accumulated displacement of every smear you make in Perform mode. Persistence at 1 means strokes never heal; Paint Flow lets the paint slide along itself like settling oil; Spread bleeds strokes outward. Clear wipes the plate.",
+    text:"This is the liquid light show system. In the 60s, artists projected oil and dye pressed between glass plates — when you pushed the oil, it STAYED pushed, crept along its own currents, and bled at the edges. Here, a hidden texture remembers the accumulated displacement of every smear you make in DJ Mode. Persistence at 1 means strokes never heal; Paint Flow lets the paint slide along itself like settling oil; Spread bleeds strokes outward. Clear wipes the plate.",
     code:"d = read(uv - d*flow);            // paint rides its own current\nd += stroke * exp(-dist*dist/r/r); // your finger deposits, permanently\nuv += d;                           // the image bends through the paint"
   },
   Motion: {
@@ -488,7 +581,7 @@ const LESSONS = {
 };
 
 /* -------- shared defaults -------- */
-const D0 = {brushSize:.16,smearStr:1.2,persist:1,pspread:.12,pflow:.1,speed:1,zoom:1,symmetry:1,warp:1,flow:1,spectrum:1,hue:0,sat:1.1,glow:.6,chroma:.8,sparkle:0,grain:.28,vignette:.5,driftSpd:3,driftAmt:.5,
+const D0 = {musicAmt:.7,musicSens:1,beatRipples:1,orb:0,orbSpin:.3,orbHard:.7,orbCount:1,bounce:0,streak:0,stars:0,brushSize:.16,smearStr:1.2,persist:1,pspread:.12,pflow:.1,speed:1,zoom:1,symmetry:1,warp:1,flow:1,spectrum:1,hue:0,sat:1.1,glow:.6,chroma:.8,sparkle:0,grain:.28,vignette:.5,driftSpd:3,driftAmt:.5,
             core:0,coreSize:.4,ring:0,ringPos:.45,ringWidth:.4,horizon:0,horizonY:0,
             tube:0,fibers:0,bgHue:.6,bgLight:0,rot:0,twist:0,mirx:0,miry:0};
 
@@ -598,7 +691,7 @@ vec3 scene(vec2 p, float t){
   float taper = smoothstep(1.2,0.2, abs(p.x)*0.9 + abs(p.y)*0.45);
   return col * taper;
 }`,
-  d:{...D0, speed:.7, zoom:.85, warp:.9, spectrum:.9, hue:.08, glow:.6, grain:.3, chroma:.8, vignette:.45, sat:1.05, fibers:.55}
+  d:{...D0, speed:.7, zoom:.85, warp:.9, spectrum:.9, hue:.08, glow:.6, grain:.3, chroma:.8, vignette:.45, sat:1.05, fibers:.3}
 },
 {
   id:"veil", name:"Veil", note:"falling light over a bright waterline", mode:"preset",
@@ -618,22 +711,38 @@ vec3 scene(vec2 p, float t){
   d:{...D0, speed:.9, flow:1.1, spectrum:.8, hue:.72, glow:.7, grain:.3, chroma:.6, sat:1.05, fibers:.3}
 },
 {
-  id:"supernova", name:"Supernova", note:"radial burst with a blinding core", mode:"preset",
+  id:"supernova", name:"Magic Orb", note:"a glowing sphere with aurora inside", mode:"preset",
   scene:`
-// SUPERNOVA — rays streak outward from a hot core through
-// spectral interference rings
+// MAGIC ORB — a luminous sphere with slow aurora veils drifting
+// INSIDE it, a light in its heart, and a breathing halo. Soft,
+// clean, magical — a crystal ball, not a blob.
 vec3 scene(vec2 p, float t){
-  float r = length(p), a = atan(p.y,p.x);
-  float ray  = fbm(vec2(a*7.0 + t*0.05, r*1.2)) * fbm(vec2(a*23.0, r*0.6 - t*0.1*uFlow));
-  float core = exp(-r*4.5)*2.2;
-  vec3 col = spectral(r*2.2*uSpectrum - ray*uWarp + uHue) * (ray*1.6 + 0.1);
-  col += vec3(0.9,0.95,1.1) * core;
-  float halo = smoothstep(1.15,0.55,r)*smoothstep(0.35,0.75,r);
-  col += spectral(uHue+0.9) * halo * 0.5;
-  col += spectral(uHue+0.02) * exp(-abs(r-0.3)*8.0) * 0.8;
+  float R = 0.42;
+  float r = length(p);
+  vec3 col = vec3(0.0);
+  if(r < R){
+    vec3 n = vec3(p/R, sqrt(max(R*R - r*r, 0.0))/R);
+    float oa = t*0.1;
+    float oc = cos(oa), os = sin(oa);
+    n = vec3(oc*n.x + os*n.z, n.y, -os*n.x + oc*n.z);   // slow 3D turn
+    vec2 su = n.xy/(abs(n.z) + 0.8);
+    float v1 = fbm(su*2.0 + t*0.06*uFlow);              // aurora veil one
+    float v2 = fbm(su*3.5 - t*0.05*uFlow + v1*uWarp);   // veil two, warped by one
+    col  = spectral(uHue + v2*0.3*uSpectrum) * (0.25 + 0.5*v2);
+    col += spectral(uHue + 0.1) * (0.15 + 0.35*v1);
+    vec3 n0 = vec3(p/R, sqrt(max(R*R - r*r, 0.0))/R);
+    col *= 0.45 + 0.55*pow(n0.z, 0.5);                  // gentle shading
+    col += vec3(1.0) * exp(-r*4.5) * 0.45;              // the light in its heart
+    col += vec3(1.0,0.98,0.95)
+         * pow(max(dot(n0, normalize(vec3(-0.4,0.5,0.75))), 0.0), 8.0) * 0.3;  // sheen
+  }
+  float pulse = 0.85 + 0.15*sin(t*0.8);                 // the halo breathes
+  col += spectral(uHue) * exp(-max(r-R,0.0)*5.0) * 0.45 * pulse;
+  col += spectral(uHue + 0.08) * exp(-max(r-R,0.0)*1.6) * 0.16 * pulse;
+  col += vec3(1.0,0.97,0.9) * pow(max(1.0 - abs(r-R)*10.0, 0.0), 2.0) * 0.45;  // rim light
   return col;
 }`,
-  d:{...D0, zoom:.95, spectrum:1.1, hue:.62, glow:.9, grain:.3, chroma:1, vignette:.35, sat:1.2, sparkle:.35}
+  d:{...D0, speed:.8, warp:1, flow:1, spectrum:.8, hue:.62, glow:.4, grain:.2, chroma:.25, vignette:.4, sat:1.15, stars:.35}
 },
 {
   id:"nebula", name:"Nebula", note:"flying forward over a glowing cloud floor", mode:"preset",
@@ -666,234 +775,128 @@ vec3 scene(vec2 p, float t){
   col *= 1.0 - above*0.68;
   return col;
 }`,
-  d:{...D0, speed:.5, warp:1.2, flow:1, spectrum:.7, hue:.165, glow:.8, grain:.35, chroma:.3, vignette:.5, sat:1.2, sparkle:.7},
+  d:{...D0, speed:.5, warp:1.2, flow:1, spectrum:.7, hue:.165, glow:.8, grain:.35, chroma:.3, vignette:.5, sat:1.2, sparkle:.7, stars:.4},
   dd:{warp:1}
 },
 {
-  id:"clouds", name:"Clouds", note:"Protean Clouds — volumetric flythrough", mode:"preset",
+  id:"clouds", name:"Clouds", note:"painted cumulus towers — lobed, rim-lit", mode:"preset",
   scene:`
-// Adapted from "Protean clouds" by nimitz (@stormoid)
-// https://www.shadertoy.com/view/3l23Rh
-// License: CC BY-NC-SA 3.0 (non-commercial). Included in this
-// free app under that license, with gratitude. Drag to steer.
-// THE HEAVYWEIGHT — a real volumetric raymarch; happiest on a laptop.
-mat2 rot2(float a){ float c=cos(a), s=sin(a); return mat2(c,s,-s,c); }
-const mat3 CM3 = mat3(0.643423, 1.081456, -1.386068,
-                     -1.696219, 0.630164, -0.295734,
-                      0.292627, 1.343203,  1.183843);
-float mag2(vec2 p){ return dot(p,p); }
-float linstep(float mn, float mx, float x){ return clamp((x-mn)/(mx-mn), 0.0, 1.0); }
-vec2 disp(float t){ return vec2(sin(t*0.22), cos(t*0.175))*2.0; }
-vec2 cmap(vec3 p, float prm1, float bsy, float iT){
-  vec3 p2 = p;
-  p2.xy -= disp(p.z).xy;
-  p.xy = p.xy * rot2(sin(p.z + iT)*(0.1 + prm1*0.05) + iT*0.09);
-  float cl = mag2(p2.xy);
-  float d = 0.0;
-  p *= 0.61;
-  float z = 1.0, trk = 1.0;
-  float dspAmp = (0.1 + prm1*0.2) * uWarp;
-  for(int i=0;i<5;i++){
-    p += sin(p.zxy*0.75*trk + iT*trk*0.8)*dspAmp;
-    d -= abs(dot(cos(p), sin(p.yzx))*z);
-    z *= 0.57; trk *= 1.4;
-    p = p*CM3;
-  }
-  d = abs(d + prm1*3.0) + prm1*0.3 - 2.5 + bsy;
-  return vec2(d + cl*0.2 + 0.25, cl);
-}
-vec4 crender(vec3 ro, vec3 rd, float time, float prm1, float bsy, float iT){
-  vec4 rez = vec4(0.0);
-  float t = 1.5, fogT = 0.0;
-  for(int i=0;i<90;i++){
-    if(rez.a > 0.99) break;
-    vec3 pos = ro + t*rd;
-    vec2 mpv = cmap(pos, prm1, bsy, iT);
-    float den = clamp(mpv.x-0.3, 0.0, 1.0)*1.12;
-    float dn = clamp(mpv.x+2.0, 0.0, 3.0);
-    vec4 col = vec4(0.0);
-    if(mpv.x > 0.6){
-      col = vec4(sin(vec3(5.0,0.4,0.2) + mpv.y*0.1 + sin(pos.z*0.4)*0.5 + 1.8 + uHue*6.28318)*0.5+0.5, 0.08);
-      col *= den*den*den;
-      col.rgb *= linstep(4.0, -2.5, mpv.x)*2.3;
-      float dif = clamp((den - cmap(pos+0.8, prm1, bsy, iT).x)/9.0, 0.001, 1.0);
-      dif += clamp((den - cmap(pos+0.35, prm1, bsy, iT).x)/2.5, 0.001, 1.0);
-      col.xyz *= den*(vec3(0.005,0.045,0.075) + 1.5*vec3(0.033,0.07,0.03)*dif);
-    }
-    float fogC = exp(t*0.2 - 2.2);
-    col += vec4(0.06,0.11,0.11,0.1)*clamp(fogC-fogT, 0.0, 1.0);
-    fogT = fogC;
-    rez = rez + col*(1.0 - rez.a);
-    t += clamp(0.5 - dn*dn*0.05, 0.09, 0.3);
-  }
-  return clamp(rez, 0.0, 1.0);
-}
-float getsat(vec3 c){
-  float mi = min(min(c.x,c.y),c.z);
-  float ma = max(max(c.x,c.y),c.z);
-  return (ma-mi)/(ma+1e-7);
-}
-vec3 iLerp(vec3 a, vec3 b, float x){
-  vec3 ic = mix(a,b,x) + vec3(1e-6,0.0,0.0);
-  float sd = abs(getsat(ic) - mix(getsat(a), getsat(b), x));
-  vec3 dir = normalize(vec3(2.0*ic.x-ic.y-ic.z, 2.0*ic.y-ic.x-ic.z, 2.0*ic.z-ic.y-ic.x));
-  float lgt = dot(vec3(1.0), ic);
-  float ff = dot(dir, normalize(ic));
-  ic += 1.5*dir*sd*ff*lgt;
-  return clamp(ic, 0.0, 1.0);
-}
+// CLOUDS — painted cumulus, the way illustrations read: what
+// sells a cloud is the LOBED SILHOUETTE (a cauliflower edge
+// built from three noise scales) and the RIM LIGHT just inside
+// it. Three banks stack back-to-front; fronts sit lower and
+// darker. Hue paints the light (0 = pink dusk); Warp = billow.
 vec3 scene(vec2 p, float t){
-  float iT = t*0.8*uFlow;
-  float time = iT*3.0;
-  vec2 bsMo = uMouse;                 // drag steers, like their mouse
-  vec3 ro = vec3(0.0, 0.0, time);
-  ro += vec3(sin(iT)*0.5, 0.0, 0.0);
-  float dspAmp = 0.85;
-  ro.xy += disp(ro.z)*dspAmp;
-  float tgtDst = 3.5;
-  vec3 target = normalize(ro - vec3(disp(time+tgtDst)*dspAmp, time+tgtDst));
-  ro.x -= bsMo.x*2.0;
-  vec3 rightdir = normalize(cross(target, vec3(0.0,1.0,0.0)));
-  vec3 updir = normalize(cross(rightdir, target));
-  rightdir = normalize(cross(updir, target));
-  vec3 rd = normalize((p.x*rightdir + p.y*updir) - target);
-  rd.xy = rd.xy * rot2(-disp(time+3.5).x*0.2 + bsMo.x);
-  float prm1 = smoothstep(-0.4, 0.4, sin(iT*0.3));
-  vec4 scn = crender(ro, rd, time, prm1, bsMo.y, iT);
-  vec3 col = scn.rgb;
-  col = iLerp(col.bgr, col.rgb, clamp(1.0-prm1, 0.05, 1.0));
-  col = pow(col, vec3(0.55,0.65,0.6))*vec3(1.0,0.97,0.9);
+  vec3 skyTop = vec3(0.36,0.33,0.52) + spectral(uHue + 0.6)*0.12;   // dusk purple
+  vec3 skyBot = vec3(0.55,0.42,0.55) + spectral(uHue)*0.18;         // rosy horizon
+  vec3 col = mix(skyBot, skyTop, clamp(p.y + 0.5, 0.0, 1.0));
+  for(int i=0; i<3; i++){
+    float fi = float(i);
+    float drift = t*0.02*uFlow*(0.5 + fi*0.4);
+    vec2 q = vec2(p.x*(0.9 + fi*0.22) + drift + fi*13.0, p.y);
+    // the lobed surface: big rolls + billows + small curls
+    float h = (0.38 - fi*0.42)
+            + fbm(vec2(q.x*1.1, fi*7.0))*0.7
+            + fbm(vec2(q.x*3.1, fi*3.0))*0.3*uWarp
+            + fbm(vec2(q.x*7.0, fi*5.0))*0.12;
+    float d = h - p.y;                          // >0 inside the cloud
+    float m = smoothstep(0.0, 0.02, d);         // crisp cauliflower edge
+    float depth = clamp(d*2.0, 0.0, 1.0);       // deeper = more shadow
+    float lobes = fbm(q*vec2(2.6,3.4) + fi*9.0 + t*0.01*uFlow);
+    float shade = clamp(1.05 - depth*0.95 + (lobes - 0.5)*0.9, 0.0, 1.25);
+    vec3 lit  = spectral(uHue + lobes*0.06*uSpectrum)*0.8 + 0.32;   // sunlit puffs
+    vec3 shad = (spectral(uHue + 0.07)*0.5 + 0.12) * (1.0 - fi*0.13); // mauve bellies
+    vec3 cl = mix(shad, lit, shade);
+    cl += (spectral(uHue)*0.5 + 0.5) * smoothstep(0.05, 0.0, d) * 0.7;  // RIM LIGHT
+    col = mix(col, cl, m*(0.75 + fi*0.12));
+  }
   return col;
 }`,
-  d:{...D0, speed:1, warp:1, flow:1, spectrum:1, hue:0, glow:.4, grain:.2, chroma:0, vignette:.3, sat:1.1},
+  d:{...D0, speed:1, warp:1, flow:1, spectrum:.6, hue:0, glow:.3, grain:.15, chroma:.15, vignette:.25, sat:1.1, stars:.35, sparkle:.1},
   dd:{}
 },
 {
-  id:"fireworks", name:"Fireworks", note:"rockets, bursts, streaking sparks", mode:"preset",
+  id:"galaxy", name:"Galaxy", note:"a real spiral — thousands of stars in arms", mode:"preset",
   scene:`
-// FIREWORKS — a particle system inside a fragment shader.
-// Realism tricks used here:
-//  · directions sampled on a 3D SPHERE, projected to 2D — real
-//    shells are spheres seen flat, so sparks fill the burst,
-//    they don't sit on a ring
-//  · 48 sparks with fully random speed, drag, and gravity
-//  · two shell types: PEONY (round, colored) and WILLOW
-//    (golden, heavy, drooping trails)
-//  · trail length follows speed — long streaks at birth,
-//    shrinking as sparks slow
+// GALAXY — built the way photographs look: thousands of TINY
+// SHARP STARS whose density follows a log-spiral arm field,
+// over a soft glow, with dust lanes carved dark and a warm
+// core. Inner arms rotate faster (differential rotation).
+float armField(vec2 g){
+  float r = length(g) + 1e-4;
+  float a = atan(g.y, g.x);
+  float phase = a*2.0 - log(r + 0.05)*4.3;
+  float arms = pow(0.5 + 0.5*cos(phase), 1.7);
+  return arms * exp(-r*1.7) + exp(-r*4.5)*0.9;
+}
+float speck(vec2 q, float dens, float sharp){
+  vec2 id = floor(q), f = fract(q) - 0.5;
+  float h = hash(id + 31.0);
+  vec2 off = (vec2(hash(id+1.7), hash(id+2.9)) - 0.5)*0.8;
+  float d = length(f - off);
+  return step(1.0 - dens*0.62, h) * exp(-d*d*sharp);
+}
 vec3 scene(vec2 p, float t){
-  // handheld camera: a tiny noise-driven wobble sells "footage"
-  p += (vec2(noise(vec2(t*0.9, 3.7)), noise(vec2(t*0.8, 9.2))) - 0.5) * 0.035;
-
-  // night sky: deep blue above, city haze below
-  vec3 col = mix(vec3(0.045,0.055,0.10), vec3(0.012,0.015,0.045),
-                 smoothstep(-0.7, 0.7, p.y));
-  float smoke = fbm(p*2.0 + vec2(0.0, -t*0.05)) * 0.08;
-  col += vec3(0.4,0.42,0.6) * smoke * smoothstep(0.7,-0.8,p.y);
-
-  for(int b=0;b<3;b++){                        // three staggered shells
-    float fb  = float(b);
-    float cyc = floor(t*0.4*uFlow + fb*0.41);  // which launch this is
-    float ph  = fract(t*0.4*uFlow + fb*0.41);  // whole cycle, 0 -> 1
-    vec2 origin = vec2(hash(vec2(cyc,fb))*1.6-0.8,
-                       0.1 + hash(vec2(fb,cyc))*0.5);
-    float hue0   = hash(vec2(cyc*3.1, fb));
-    float willow = step(0.68, hash(vec2(cyc*7.7, fb)));  // ~1 in 3 shells
-
-    if(ph < 0.2){
-      // --- ASCENT: the rocket climbs, easing out near apex ---
-      float asc  = ph/0.2;
-      float ease = 1.0 - (1.0-asc)*(1.0-asc);
-      vec2 rp = mix(vec2(origin.x + sin(asc*9.0+cyc)*0.02, -0.85), origin, ease);
-      float d = length(p - rp);
-      col += vec3(1.0,0.85,0.6) * 0.0006/(d*d + 0.0004);
-      float dt2 = length(p - (rp + vec2(0.0,-0.06)));    // sputtering tail
-      col += vec3(1.0,0.55,0.3) * 0.00018/(dt2*dt2 + 0.0007);
-    } else {
-      // --- BURST ---
-      float lt   = (ph-0.2)/0.8;               // spark life, 0 -> 1
-      float fade = exp(-lt*mix(3.2, 2.0, willow));   // willows linger
-      // white flash + brief halo at the instant of explosion
-      float fd = length(p - origin);
-      col += vec3(1.0,0.95,0.85) * exp(-fd*5.0) * exp(-lt*16.0) * 2.2;
-      // the smoke cloud LIT FROM WITHIN by the burst
-      col += vec3(0.55,0.6,0.8) * smoke * exp(-fd*1.8) * fade * 6.0;
-
-      float grav = mix(0.30, 0.72, willow);    // willows droop hard
-      for(int i=0;i<48;i++){                   // 48 sparks per shell
-        float fi = float(i);
-        // random direction ON A SPHERE, projected flat:
-        float az  = hash(vec2(fi, cyc))*6.28318;
-        float el  = hash(vec2(fi+57.0, cyc))*2.0 - 1.0;   // z on the sphere
-        float rxy = sqrt(max(1.0 - el*el, 0.0));          // projected radius
-        vec2 dir  = vec2(cos(az), sin(az)) * rxy;
-        float sp  = (0.55 + 0.5*hash(vec2(cyc, fi+13.0))) * uWarp;
-        float drag = 2.2 + 1.2*hash(vec2(fi+91.0, cyc));  // per-spark drag
-        // trail lookback shrinks as the spark slows down
-        float tail = 0.02 + 0.09*exp(-drag*lt);
-        float lt2  = max(lt - tail, 0.0);
-        float tr1  = (1.0-exp(-drag*lt ))/drag;
-        float tr2  = (1.0-exp(-drag*lt2))/drag;
-        vec2 pa = origin + dir*sp*tr1 + vec2(0.0, -grav*lt *lt );
-        vec2 pb = origin + dir*sp*tr2 + vec2(0.0, -grav*lt2*lt2);
-        // distance from this pixel to the streak segment pa->pb
-        vec2 ab = pb - pa;
-        float hseg = clamp(dot(p-pa,ab)/max(dot(ab,ab),1e-6), 0.0, 1.0);
-        float d = length(p - (pa + ab*hseg));
-        float flick = 0.75 + 0.45*sin(lt*80.0 + fi*13.7 + cyc*9.0); // strobe
-        flick = mix(flick, 1.0, 0.5*(1.0-lt));  // steady young, crackly old
-        // BOKEH: some sparks are out of focus — bigger soft discs,
-        // automatically dimmer (larger k = wider, softer, fainter)
-        float bok = hash(vec2(fi+31.0, cyc));
-        float k = mix(0.00012, 0.0028, bok*bok*bok);
-        float glow = min(0.00042/(d*d + k), 6.0);
-        vec3 sc = spectral(hue0 + fi*0.004*uSpectrum + uHue);
-        sc = mix(sc, vec3(0.85,0.9,1.0), 0.35);                     // silver-blue film bias
-        sc = mix(sc, vec3(1.0,0.8,0.45), willow*0.75);              // willows go gold
-        sc = mix(vec3(1.0,0.98,0.92), sc, clamp(lt*6.0, 0.0, 1.0)); // white-hot birth
-        sc = mix(sc, vec3(1.0,0.5,0.22), smoothstep(0.55,1.0,lt)*0.65); // ember death
-        col += sc * glow * fade * flick;
-      }
-    }
-  }
+  vec2 g = vec2(p.x, p.y*2.2);                     // tilt the disk
+  float r = length(g) + 1e-4;
+  float spin = t*0.04*uFlow/(r + 0.3);             // differential rotation
+  float ca = cos(spin), sa = sin(spin);
+  vec2 gr = mat2(ca,-sa,sa,ca)*g;
+  float af = armField(gr*uWarp);
+  // glow body: blue arms, warm core
+  vec3 col = mix(spectral(uHue)*0.7, vec3(0.75,0.82,1.0), 0.4) * af * 0.55;
+  float lane = smoothstep(0.5, 0.85, fbm(gr*4.0 + 7.0));
+  col *= 1.0 - lane*0.5*clamp(af*2.0, 0.0, 1.0);   // dust lanes
+  col += vec3(1.0,0.88,0.68) * exp(-r*5.5) * 0.9;  // golden bulge
+  col += vec3(1.0,0.96,0.88) * exp(-r*16.0) * 1.6; // core
+  // THE STARS — three sizes, density driven by the arms
+  float dens = clamp(af*1.6, 0.0, 1.0);
+  float st = speck(gr*34.0, dens, 340.0)*1.0
+           + speck(gr*19.0 + 5.0, dens, 220.0)*0.8
+           + speck(gr*55.0 + 11.0, dens*0.9, 520.0)*0.55;
+  col += mix(vec3(0.85,0.92,1.0), spectral(uHue + 0.1), 0.25) * st * (0.8 + af*1.6) * uSpectrum;
+  // sparse halo stars outside the disk
+  col += vec3(0.8,0.88,1.0) * speck(p*26.0 + 43.0, 0.16, 420.0) * 0.5;
   return col;
 }`,
-  d:{...D0, speed:1, warp:.9, flow:.7, spectrum:.9, hue:.35, glow:1.2, grain:.32, chroma:0, vignette:.4, sat:1.05, sparkle:.5}
+  d:{...D0, speed:.8, warp:1, flow:1, spectrum:1, hue:.6, glow:.5, grain:.18, chroma:.12, vignette:.45, sat:1.1, stars:.25},
+  dd:{}
 },
 {
   id:"pool", name:"Pool", note:"sunlit water — tap to drop a ripple", mode:"preset",
   scene:`
-// Adapted from David Hoskins' tileable version of joltz0r's
-// water turbulence — https://www.shadertoy.com/view/MdlXz8
-// License: CC BY-NC-SA (non-commercial). Included in this free
-// app under that license, with gratitude. Tap to ripple.
+// POOL — sunlit water. The caustic web uses the classic
+// wave-phase-feedback ALGORITHM (math is free; this code is
+// Trip Out's own): fold the previous phase into the next wave,
+// stack reciprocal wavefront brightness, sharpen. Tap to ripple.
 vec3 scene(vec2 p, float t){
-  // our tap ripple, bending the water before the turbulence runs
   float age = max(uTime - uTap.z, 0.0);
   vec2 dtp = p - uTap.xy;
   float rr = length(dtp) + 1e-4;
   float ring = sin(rr*26.0 - age*6.0) * exp(-rr*2.2) * exp(-age*0.9) * step(0.001, uTap.z);
   p += (dtp/rr) * ring * 0.08 * uWarp;
 
-  float time = t*0.5*uFlow + 23.0;
-  vec2 uv01 = p*0.5 + 0.5;                        // centered -> 0..1 texture space
-  vec2 pp = mod(uv01*6.28318530718, 6.28318530718) - 250.0;
-  vec2 i = pp;
+  float tm = t*0.55*uFlow + 31.0;
+  vec2 q = mod(p*2.4 + 60.0, 6.28318) - 250.0;   // wrapped domain, far from zero
+  vec2 w = q;
   float c = 1.0;
-  float inten = 0.005;
-  for(int n=0; n<5; n++){
-    float t2 = time * (1.0 - (3.5/float(n+1)));
-    i = pp + vec2(cos(t2 - i.x) + sin(t2 + i.y),
-                  sin(t2 - i.y) + cos(t2 + i.x)) * (0.75 + 0.35*uWarp);
-    c += 1.0/length(vec2(pp.x/(sin(i.x + t2)/inten),
-                         pp.y/(cos(i.y + t2)/inten)));
+  const float amp = 0.004;
+  for(int n=0; n<6; n++){
+    float k = tm*(1.0 - 3.2/float(n+2));
+    w = q + vec2(cos(k - w.x) + sin(k + w.y),
+                 sin(k - w.y) + cos(k + w.x)) * (0.8 + 0.25*uWarp);
+    c += 1.0/length(vec2(q.x/(sin(w.x + k)/amp),
+                         q.y/(cos(w.y + k)/amp)));
   }
-  c /= 5.0;
-  c = 1.17 - pow(c, 1.4);
-  vec3 colour = vec3(pow(abs(c), 8.0));
-  colour = clamp(colour + spectral(uHue)*0.57, 0.0, 1.0);   // Hue 0.45 = their pool blue
-  colour += vec3(1.0)*abs(ring)*1.2;                        // the ripple glints
-  return colour;
+  c /= 6.0;
+  c = 1.2 - pow(c, 1.35);
+  float web = pow(abs(c), 7.0);
+  vec3 col = vec3(web);
+  col = clamp(col + spectral(uHue + web*0.04*uSpectrum)*0.57, 0.0, 1.3);
+  col *= 0.84 + 0.24*p.y;                        // shallow end brighter
+  col += vec3(1.0,0.95,0.8) * pow(max(fbm(p*2.2 + t*0.3*uFlow), 0.0), 9.0) * 1.3;
+  col += vec3(1.0) * abs(ring) * 1.3;
+  return col;
 }`,
   d:{...D0, speed:1, warp:1, flow:1, spectrum:.6, hue:.45, glow:.4, grain:.15, chroma:.2, vignette:.3, sat:1.1},
   dd:{warp:1}
@@ -901,66 +904,61 @@ vec3 scene(vec2 p, float t){
 {
   id:"metal", name:"Metal", note:"liquid metal — accumulation march", mode:"preset",
   scene:`
-// Adapted from a liquid-metal shader by Frostbyte (Shadertoy),
-// using Xor's Dot Noise (shadertoy.com/view/wfsyRX).
-// License: CC BY-NC-SA 4.0 (non-commercial). Included in this
-// free app under that license, with gratitude.
-vec2 rotV(vec2 v, float t){ float s=sin(t), c=cos(t); return mat2(c,-s,s,c)*v; }
-vec3 acesTone(vec3 c){
-  mat3 m1 = mat3(0.59719,0.07600,0.02840, 0.35458,0.90834,0.13383, 0.04823,0.01566,0.83777);
-  mat3 m2 = mat3(1.60475,-0.10208,-0.00327, -0.53108,1.10813,-0.07276, -0.07367,-0.00605,1.07602);
-  vec3 v = m1*c;
-  vec3 va = v*(v+0.0245786) - 0.000090537;
-  vec3 vb = v*(0.983729*v + 0.4329510) + 0.238081;
-  return m2*(va/vb);
-}
-float dotNoise(vec3 p){
-  const float PHI = 1.618033988;
-  const mat3 GOLD = mat3(
-    -0.571464913,  0.814921382, 0.096597072,
-    -0.278044873, -0.303026659, 0.911518454,
-     0.772087367,  0.494042493, 0.399753815);
-  return dot(cos(GOLD*p), sin(PHI*p*GOLD));
+// METAL — liquid metal. Accumulation-march algorithm (math is
+// free; these constants and this code are Trip Out's own): the
+// ray steps through thin shells found by the DIFFERENCE of two
+// noise scales, gathering iridescent light every step, then a
+// filmic curve squashes the pile-up into chrome.
+float mnoise(vec3 p){
+  const mat3 MM = mat3( 0.482, -0.636,  0.602,
+                        0.781,  0.522, -0.342,
+                       -0.397,  0.568,  0.721);
+  return dot(cos(MM*p), sin(1.32472*p*MM));
 }
 vec3 scene(vec2 p, float t){
   float tt = t*uFlow;
   vec3 pos = vec3(0.0, 0.0, -1.0 - 0.5*sin(tt*0.1));
   vec3 d = normalize(vec3(p, 1.0));
   vec3 l = vec3(0.0);
-  float s;
-  for(int k=0;k<10;k++){
+  for(int i=0; i<10; i++){
     vec3 b = pos;
-    b.xy = rotV(sin(b.xy*0.25), tt*0.5 + b.z*2.0);
-    s = 0.001 + abs(dotNoise(b*20.0)/20.0 - dotNoise(b))*0.7*uWarp;
-    s += abs(pos.y*0.2 + sin(pos.z*2.0 + abs(pos.x)*0.5))*0.5;
+    float rc = cos(tt*0.5 + b.z*2.0), rs = sin(tt*0.5 + b.z*2.0);
+    b.xy = mat2(rc,-rs,rs,rc) * sin(b.xy*0.25);
+    float s = 0.001 + abs(mnoise(b*20.0)/20.0 - mnoise(b)) * 0.7 * uWarp;
+    s += abs(pos.y*0.2 + sin(pos.z*2.0 + abs(pos.x)*0.5)) * 0.5;
     pos += d*s;
-    l += (1.0 + 1.5*sin(float(k) + length(pos.xy*0.1) + 2.0
-          + vec3(3.0,1.5,0.5) + uHue*6.28318))/s;
+    l += (1.0 + 1.5*sin(float(i) + length(pos.xy*0.1) + 2.0
+          + vec3(3.0,1.5,0.5) + uHue*6.28318)) / s;
   }
-  return acesTone(l*l/500.0);
+  vec3 x = l*l/500.0;
+  vec3 col = clamp((x*(2.51*x + 0.03))/(x*(2.43*x + 0.59) + 0.14), 0.0, 1.0);
+  col = mix(vec3(dot(col, vec3(0.333))), col, 0.5 + 0.5*clamp(uSpectrum, 0.0, 1.0));
+  return col;
 }`,
   d:{...D0, speed:1, warp:1, flow:1, spectrum:1, hue:0, glow:.4, grain:.2, chroma:.3, vignette:.35, sat:1.1}
 },
 {
-  id:"grain", name:"Noise", note:"digital static — RGB computer noise", mode:"preset",
+  id:"grain", name:"Noise", note:"bright color confetti static — lofi, zero grey", mode:"preset",
   scene:`
-// NOISE — pure computer-graphics static. Every cell re-rolls a
-// random value each refresh. Warp = cell size (chunky pixels to
-// fine static), Flow = refresh rate, Spectrum = how much the
-// R, G, B channels disagree (0 = monochrome TV snow).
+// NOISE — lofi static with EVERY cell a bright color: each cell
+// rolls a vivid hue from the spectral wheel, never grey. Warp =
+// cell size, Flow = refresh rate, Spectrum = hue variety,
+// Hue = where the confetti wheel is centered.
 vec3 scene(vec2 p, float t){
-  float fps = mix(6.0, 60.0, clamp(uFlow*0.45, 0.0, 1.0));
+  float fps = mix(4.0, 30.0, clamp(uFlow*0.45, 0.0, 1.0));
   float frame = floor(t*fps);
-  float scale = mix(50.0, 420.0, clamp(uWarp*0.45, 0.0, 1.0));
+  float scale = mix(40.0, 240.0, clamp(uWarp*0.45, 0.0, 1.0));
   vec2 g = floor(p*scale) + frame*0.37;
-  vec3 rgb = vec3(hash(g), hash(g+13.1), hash(g+27.7));   // per-channel rolls
-  vec3 col = mix(vec3(rgb.x), rgb, clamp(uSpectrum*0.7, 0.0, 1.0));
-  col = mix(col, col*spectral(uHue)*1.6, 0.35);           // tint
-  float line = step(0.992, hash(vec2(floor(p.y*scale*0.5), frame)));
-  col = mix(col, vec3(rgb.x)*1.4, line*0.6);              // dropout lines
-  return col*0.95;
+  vec3 confetti = spectral(fract(uHue + hash(g)*clamp(uSpectrum, 0.05, 1.5)));
+  float lum = 0.55 + 0.45*hash(g + 3.3);              // bright, never grey
+  vec3 col = confetti * lum * 1.15;
+  col += vec3(1.0) * step(0.96, hash(g + 9.1)) * 0.5; // white pops
+  col *= 0.92 + 0.08*sin(p.y*3.0 + t*0.4);            // lofi rolling band
+  float line = step(0.995, hash(vec2(floor(p.y*scale*0.5), frame)));
+  col = mix(col, col*1.35, line*0.5);
+  return col;
 }`,
-  d:{...D0, speed:1, warp:1, flow:1, spectrum:.8, hue:.6, glow:.2, grain:0, chroma:.5, vignette:.3, sat:1.0}
+  d:{...D0, speed:1, warp:1, flow:.8, spectrum:.8, hue:.0, glow:.25, grain:0, chroma:.35, vignette:.3, sat:1.2}
 },
 {
   id:"silk", name:"Aurora Silk", note:"liquid chromatic smear, fully fluid", mode:"preset",
@@ -981,7 +979,7 @@ vec3 scene(vec2 p, float t){
   col += spectral(uHue + f) * f * 0.4;
   return col;
 }`,
-  d:{...D0, warp:1.3, flow:1.2, spectrum:1.3, hue:.3, glow:.5, grain:.35, chroma:1.2, vignette:.3, sat:1.3}
+  d:{...D0, warp:1.3, flow:1.2, spectrum:1.3, hue:.3, glow:.5, grain:.35, chroma:1.2, vignette:.3, sat:1.3, fibers:.35}
 }
 ];
 
@@ -1034,7 +1032,60 @@ void main(){
   vec2 suv = uv;                       // screen space, kept for lights/vignette
   float tubeR = length(uv);
   vec3 col;
-  if(uTube > 0.5){                     // TUBE — wrap the picture into a tunnel.
+  if(uOrb > 0.5){                      // ORB(S) — portals on lit 3D spheres
+    vec2 ouv = uv;                     // untouched view: the sky stays still
+    vec2 halfV = vec2(uRes.x/uRes.y*0.5, 0.5)/uZoom;
+    float minEdge = 1e9, bestD = 1e9, bR = 0.0, bId = 0.0;
+    vec2 bLp = vec2(0.0);
+    for(int i=0; i<30; i++){
+      float fi = float(i);
+      if(fi > uOrbCount - 0.5) break;
+      float h1 = hash(vec2(fi, 7.0)), h2 = hash(vec2(fi, 13.0));
+      float R = (uOrbCount < 1.5) ? 0.40
+              : mix(0.30, 0.11, clamp(uOrbCount/30.0, 0.0, 1.0)) * (0.7 + 0.6*hash(vec2(fi, 3.0)));
+      vec2 rng = max(halfV - R - 0.03, vec2(0.0));
+      vec2 pos; vec2 prox = vec2(0.0);
+      if(uBounce > 0.5){               // every ball ricochets on its own rhythm
+        vec2 ph = vec2(uTime*uSpeed*(0.09 + h1*0.10) + h1*7.0,
+                       uTime*uSpeed*(0.12 + h2*0.11) + h2*5.0);
+        vec2 tw2 = abs(fract(ph)*2.0 - 1.0)*2.0 - 1.0;
+        pos = tw2 * rng;
+        prox = smoothstep(0.86, 1.0, abs(tw2));   // near a wall?
+      } else {
+        pos = (uOrbCount < 1.5) ? vec2(0.0)
+            : (vec2(h1, h2)*2.0 - 1.0) * rng * 0.9
+              + 0.05*vec2(sin(uTime*uSpeed*(0.3 + h1) + fi),
+                          cos(uTime*uSpeed*(0.25 + h2) + fi*2.0));
+      }
+      vec2 lp = uv - pos;
+      float sq = 1.0 - uOrbHard;       // HARDNESS: 1 = rigid, 0 = jelly
+      lp.x *= 1.0 + prox.x*sq*0.5 - prox.y*sq*0.25;   // squash on the wall,
+      lp.y *= 1.0 + prox.y*sq*0.5 - prox.x*sq*0.25;   // stretch the other way
+      float d = length(lp);
+      minEdge = min(minEdge, d - R);
+      if(d < R && d < bestD){ bestD = d; bLp = lp; bR = R; bId = fi; }
+    }
+    if(bestD < bR){                    // this pixel belongs to its nearest ball
+      float R = bR; float rr = bestD;
+      vec3 n0 = vec3(bLp/R, sqrt(max(R*R - rr*rr, 0.0))/R);
+      float oa = uTime*uSpeed*uOrbSpin + uRot + bId*2.4;  // + per-ball phase
+      float oc = cos(oa), os = sin(oa);
+      vec3 n = vec3(oc*n0.x + os*n0.z, n0.y, -os*n0.x + oc*n0.z);
+      vec2 tuv = n.xy/(abs(n.z) + 0.7)*0.72;   // tighter wrap: fits every portal
+      col = postfx(tuv, suv, gl_FragCoord.xy, uTime*uSpeed);
+      vec3 ldir = normalize(vec3(-0.45, 0.55, 0.7));
+      col *= 0.3 + 0.7*max(dot(n0, ldir), 0.0);                  // sun / night side
+      col += vec3(1.0)*pow(max(dot(reflect(-ldir,n0),vec3(0.0,0.0,1.0)),0.0),28.0)*0.5;
+      col += spectral(uHue)*pow(1.0 - n0.z, 3.0)*0.6;            // atmosphere rim
+    } else {
+      col = vec3(0.004,0.005,0.01);                              // deep space
+      vec3 stT = mix(vec3(0.72,0.88,1.0), spectral(uHue+0.45), 0.3);
+      col += stT * starLayer(ouv, uTime*uSpeed) * uStars * 1.4;
+      col += spectral(uHue) * exp(-max(minEdge, 0.0)*6.0) * 0.35; // halo, nearest ball
+      col *= clamp(1.0 - uVignette*dot(ouv,ouv)*0.9, 0.0, 1.0);
+      col += (hash(gl_FragCoord.xy + mod(uTime,100.0)) - 0.5)*uGrain*0.15;
+    }
+  } else if(uTube > 0.5){                     // TUBE — wrap the picture into a tunnel.
     float ta = atan(uv.y, uv.x);       // Two copies of the portal scroll FORWARD,
     float ax = (abs(ta)*0.6366 - 0.5)*1.6;   // half a tile apart; each fades out
     float depth = 0.35/(tubeR + 0.05) + uTime*uSpeed*0.6;  // where its seam would show.
@@ -1052,7 +1103,7 @@ void main(){
   gl_FragColor = vec4(col, 1.0);
 }`;
 function liveSource(preset){
-  return headerFor(uniformKeysForMode(preset.mode)) + GLSL_COMMON + preset.scene + "\n" + GLSL_POST + APP_MAIN;
+  return headerFor(uniformKeysForMode(preset.mode)) + GLSL_COMMON + GLSL_STARFIELD + preset.scene + "\n" + GLSL_POST + APP_MAIN;
 }
 
 const progCache = {};
@@ -1101,7 +1152,7 @@ if(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").ma
 let driftFlags = {hue:1, warp:1};   // per-control drift toggles (free's defaults)
 function driftEligible(k){
   const c = byKey[k];
-  return c && !c.jsOnly && !c.toggle && c.step < 1 && k !== "speed";
+  return c && !c.jsOnly && !c.toggle && c.step < 1 && k !== "speed" && k !== "stars";
 }
 function keyPhase(k){  // stable per-control phase so drifts don't sync up
   let h = 0;
@@ -1109,6 +1160,16 @@ function keyPhase(k){  // stable per-control phase so drifts don't sync up
   return h/997*6.283;
 }
 function effective(){
+  if(music.on && !music.renderMute){       // Music takes the wheel; Drift waits
+    const A = vals.musicAmt==null?0.7:vals.musicAmt;
+    const out = {...vals};
+    for(const k in musicRoutes){
+      const c=byKey[k]; if(!c) continue;
+      const sg = music.sig[musicRoutes[k]]||0;
+      out[k]=Math.min(c.max, Math.max(c.min, vals[k] + (c.max-c.min)*0.2*A*sg));
+    }
+    return out;
+  }
   const active = Object.keys(driftFlags).filter(k => driftFlags[k] && driftEligible(k));
   if(!active.length || vals.driftAmt<=0) return vals;
   const A = vals.driftAmt, S = vals.driftSpd, T = simTime, e = {...vals};
@@ -1263,6 +1324,130 @@ const rippleArr = new Float32Array(24);
 function addRipple(x,y){
   ripples.push({x,y,t:simTime});
   if(ripples.length>8) ripples.shift();
+}
+
+/* -------- music engine — a Fourier transform and taste, no AI -------- */
+const music = {
+  on:false, ctx:null, analyser:null, src:null, stream:null, deviceId:"", renderMute:false,
+  bins:null, sig:{bass:0,mid:0,treble:0,level:0,beat:0},
+  env:{bass:0,mid:0,treble:0,level:0}, beatAvg:0.02, beatPk:0, lastBeat:-9, agc:0.12,
+};
+let musicRoutes = {};                  // slider key -> signal name
+let musicRoutingUI = false;
+const ROUTE_SIGS = ["","bass","mid","treble","beat"];
+const SIG_ABBR = {bass:"B", mid:"M", treble:"T", beat:"\u2665"};
+function routeEligible(k){
+  const c = byKey[k];
+  return c && !c.jsOnly && !c.toggle && c.step < 1 && k !== "speed";
+}
+function autoRoute(){                  // sensible wiring per portal, one tap
+  musicRoutes = {};
+  const base = cur.mode==="free"
+    ? {warp:"bass", contrast:"mid", sparkle:"treble", zoom:"beat", core:"beat", stars:"treble"}
+    : {warp:"bass", flow:"mid", sparkle:"treble", zoom:"beat", glow:"beat"};
+  const per = {
+    supernova:{glow:"beat", warp:"bass", sparkle:"treble", spectrum:"mid"},
+    galaxy:{spectrum:"mid", sparkle:"treble", zoom:"beat", warp:"bass"},
+    pool:{warp:"bass", sparkle:"treble", zoom:"beat"},
+    grain:{flow:"bass", warp:"beat", spectrum:"treble"},
+    clouds:{warp:"bass", glow:"beat", spectrum:"mid"},
+    metal:{warp:"bass", glow:"beat", sparkle:"treble"},
+    nebula:{warp:"bass", glow:"beat", sparkle:"treble", flow:"mid"},
+  };
+  Object.assign(base, per[cur.id]||{});
+  for(const k in base) if(routeEligible(k)) musicRoutes[k]=base[k];
+}
+async function musicStart(devId){
+  try{
+    music.ctx = music.ctx || new (window.AudioContext||window.webkitAudioContext)();
+    await music.ctx.resume();
+    const opts = {echoCancellation:false, noiseSuppression:false, autoGainControl:false};
+    if(devId) opts.deviceId = {exact:devId};
+    const st = await navigator.mediaDevices.getUserMedia({audio:opts});
+    if(music.stream) music.stream.getTracks().forEach(t=>t.stop());
+    if(music.src) music.src.disconnect();
+    music.stream = st;
+    music.src = music.ctx.createMediaStreamSource(st);
+    if(!music.analyser){
+      music.analyser = music.ctx.createAnalyser();
+      music.analyser.fftSize = 2048;
+      music.analyser.smoothingTimeConstant = 0.5;
+      music.bins = new Uint8Array(music.analyser.frequencyBinCount);
+    }
+    music.src.connect(music.analyser);
+    music.on = true;
+    if(!Object.keys(musicRoutes).length) autoRoute();
+    setMusicUI(true); listInputs();
+    say("Listening \u266a \u2014 Drift is paused while Music is on");
+  }catch(err){
+    music.on = false; setMusicUI(false);
+    say("Mic blocked \u2014 allow microphone access and try again");
+  }
+}
+function musicStop(){
+  if(music.stream) music.stream.getTracks().forEach(t=>t.stop());
+  music.on = false; setMusicUI(false);
+  const g = music.sig; g.bass=g.mid=g.treble=g.level=g.beat=0;
+  say("Music off");
+}
+function setMusicUI(on){
+  const b1=document.getElementById("bMusic"), b2=document.getElementById("pfMusic");
+  if(b1) b1.classList.toggle("on",on);
+  if(b2) b2.classList.toggle("on",on);
+}
+async function listInputs(){           // device labels appear after permission
+  try{
+    const sel=document.getElementById("musIn"); if(!sel) return;
+    const ds=await navigator.mediaDevices.enumerateDevices();
+    const curId=music.deviceId||"";
+    sel.innerHTML="";
+    const d0=document.createElement("option"); d0.value=""; d0.textContent="Default microphone";
+    sel.appendChild(d0);
+    ds.filter(d=>d.kind==="audioinput"&&d.deviceId).forEach(d=>{
+      const o=document.createElement("option"); o.value=d.deviceId;
+      o.textContent=d.label||"Audio input"; if(d.deviceId===curId) o.selected=true;
+      sel.appendChild(o);
+    });
+  }catch(e){}
+}
+function bandAvg(lo,hi){               // Hz range -> average bin energy 0..1
+  const nyq=music.ctx.sampleRate/2, n=music.bins.length;
+  const a=Math.max(0,Math.floor(lo/nyq*n)), b=Math.min(n-1,Math.ceil(hi/nyq*n));
+  let sum=0; for(let i=a;i<=b;i++) sum+=music.bins[i];
+  return sum/((b-a+1)*255);
+}
+function musicUpdate(dt){
+  if(!music.on || !music.analyser) return;
+  music.analyser.getByteFrequencyData(music.bins);
+  const raw={bass:bandAvg(25,150), mid:bandAvg(400,2200), treble:bandAvg(4000,12000), level:bandAvg(25,12000)};
+  // auto-gain: normalize to the loudest thing heard lately (~8s half-life)
+  music.agc = Math.max(music.agc*Math.pow(0.5, dt/8), raw.level, 0.05);
+  const sens = vals.musicSens==null?1:vals.musicSens;
+  for(const k in raw){
+    const v=Math.min(1.5, raw[k]/music.agc*sens*0.9);
+    const e=music.env[k];
+    music.env[k] = v>e ? e+(v-e)*Math.min(1,dt*22)     // fast attack: hit the transient
+                       : e+(v-e)*Math.min(1,dt*4.5);   // slow release: decay musically
+    music.sig[k]=Math.min(1,music.env[k]);
+  }
+  // beat: bass onset above its rolling average — strobe-guarded to ~3/s
+  music.beatAvg += (raw.bass-music.beatAvg)*Math.min(1,dt*1.6);
+  if(raw.bass > music.beatAvg*1.45+0.03 && simTime-music.lastBeat > 0.34){
+    music.lastBeat=simTime; music.beatPk=1;
+    if((vals.beatRipples==null?1:vals.beatRipples) > 0.5){
+      const rc=canvas.getBoundingClientRect();          // a shockwave lands somewhere new
+      const [sx,sy]=toScene(rc.left+(0.12+0.76*Math.random())*rc.width,
+                            rc.top +(0.12+0.76*Math.random())*rc.height);
+      addRipple(sx,sy);
+    }
+  }
+  music.beatPk *= Math.pow(0.5, dt/0.09);              // punchy decay
+  music.sig.beat = music.beatPk;
+  const mm=document.getElementById("musMeters");        // live meters
+  if(mm){
+    const v=[music.sig.bass,music.sig.mid,music.sig.treble,music.sig.beat];
+    for(let i=0;i<4;i++) mm.children[i].style.height=(2+13*Math.min(1,v[i]))+"px";
+  }
 }
 
 /* -------- persistent paint field (liquid light show) --------
@@ -1431,6 +1616,7 @@ function frame(now){
   if(!rendering){
     fitCanvas();
     if(playing) simTime += dt;
+    musicUpdate(dt);
     mouse.x += (mouse.tx-mouse.x)*0.08;
     mouse.y += (mouse.ty-mouse.y)*0.08;
     if(performOn && (performTool==="play" || performTool==="spin")){
@@ -1452,6 +1638,7 @@ const bBlank = document.getElementById("bBlank");
 function selectPortal(p){
   cur = p; vals = {...p.d};
   driftFlags = {...(p.dd || {hue:1})};   // portals default to a gentle hue drift
+  if(music.on) autoRoute();              // fresh wiring for the new portal
   buildSliders(); markSelected();
   if(typeof populateAxes==="function") populateAxes();
 }
@@ -1485,6 +1672,21 @@ function buildSliders(){
     const sum=document.createElement("summary"); sum.textContent=g;
     const body=document.createElement("div"); body.className="grpbody";
 
+    if(g==="Music"){
+      const head=document.createElement("div"); head.className="musHead";
+      head.innerHTML='<div class="meters" id="musMeters"><i></i><i></i><i></i><i></i></div>'
+        +'<div class="mrow"><select id="musIn" class="msel"><option value="">Default microphone</option></select></div>'
+        +'<div class="mrow"><button class="btn" id="bAutoRoute">Auto-Route</button>'
+        +'<button class="btn" id="bRouting">Routing</button></div>';
+      body.appendChild(head);
+      head.querySelector("#bAutoRoute").onclick=()=>{ autoRoute(); buildSliders(); say("Routed for "+cur.name); };
+      const rb=head.querySelector("#bRouting");
+      rb.classList.toggle("on", musicRoutingUI);
+      rb.onclick=()=>{ musicRoutingUI=!musicRoutingUI; buildSliders(); };
+      const sel=head.querySelector("#musIn");
+      sel.onchange=()=>{ music.deviceId=sel.value; if(music.on) musicStart(sel.value); };
+      if(music.on) listInputs();
+    }
     if(LESSONS[g]){
       const les=document.createElement("details"); les.className="lesson";
       const lsum=document.createElement("summary"); lsum.textContent="what's happening here";
@@ -1523,6 +1725,7 @@ function buildSliders(){
       };
       inp.addEventListener("input",()=>{ vals[k]=+inp.value; paint(); });
       paint();
+      const rowBtns=[];
       if(driftEligible(k)){
         wrap.classList.add("driftable");
         const db=document.createElement("button");
@@ -1530,10 +1733,25 @@ function buildSliders(){
         db.textContent="~"; db.title="Drift this value — it will slowly breathe on its own";
         db.setAttribute("aria-label","Drift "+c.label);
         db.onclick=()=>{ driftFlags[k]=driftFlags[k]?0:1; db.classList.toggle("on",!!driftFlags[k]); };
-        wrap.append(lab,db,out,inp);
-      } else {
-        wrap.append(lab,out,inp);
+        rowBtns.push(db);
       }
+      if(musicRoutingUI && routeEligible(k)){
+        wrap.classList.add(musicRoutes[k]?"driftable":"driftable");
+        const rt=document.createElement("button");
+        rt.className="rt"+(musicRoutes[k]?" on":"");
+        rt.textContent=musicRoutes[k]?SIG_ABBR[musicRoutes[k]]:"\u266a";
+        rt.title="Route music into this slider \u2014 tap to cycle Bass / Mid / Treble / Beat";
+        rt.onclick=()=>{
+          const i=(ROUTE_SIGS.indexOf(musicRoutes[k]||"")+1)%ROUTE_SIGS.length;
+          if(ROUTE_SIGS[i]) musicRoutes[k]=ROUTE_SIGS[i]; else delete musicRoutes[k];
+          rt.textContent=musicRoutes[k]?SIG_ABBR[musicRoutes[k]]:"\u266a";
+          rt.classList.toggle("on",!!musicRoutes[k]);
+        };
+        rowBtns.push(rt);
+      }
+      if(rowBtns.length===2) wrap.classList.add("routed");
+      if(rowBtns.length){ wrap.append(lab,...rowBtns,out,inp); }
+      else { wrap.append(lab,out,inp); }
       body.appendChild(wrap);
       inputs[k]={sync:()=>{ inp.value=vals[k]; paint(); }};
     });
@@ -1563,6 +1781,8 @@ function say(msg){ toast.textContent=msg; toast.classList.add("show"); clearTime
 
 /* -------- actions -------- */
 document.getElementById("bPlay").onclick=function(){ playing=!playing; this.textContent=playing?"Pause":"Play"; };
+document.getElementById("bMusic").onclick=()=>{ music.on ? musicStop() : musicStart(music.deviceId); };
+document.getElementById("pfMusic").onclick=()=>{ music.on ? musicStop() : musicStart(music.deviceId); };
 document.getElementById("bRand").onclick=()=>{
   const r=(a,b)=>a+Math.random()*(b-a);
   if(cur.mode==="free"){
@@ -1576,19 +1796,41 @@ document.getElementById("bRand").onclick=()=>{
     vals.ring=Math.random()<.6?0:r(.3,1.4); vals.ringPos=r(.2,.9);
     vals.horizon=Math.random()<.7?0:r(.3,1.2); vals.horizonY=r(-.5,.5);
     vals.symmetry=Math.random()<.7?1:(2+Math.floor(Math.random()*6));
-    vals.rot=r(0,6.28); vals.fibers=Math.random()<.6?0:r(.15,.7);
+    vals.rot=r(0,6.28); vals.fibers=Math.random()<.6?0:r(.1,.45);
+    vals.stars=Math.random()<.6?0:r(.3,1); vals.streak=Math.random()<.78?0:r(.2,.8);
+    vals.bgHue=Math.random(); vals.bgLight=Math.random()<.7?0:r(.1,.4);
+    // RECIPES — hand-tuned archetypes blended in for real variety
+    const RECIPES=[
+      ()=>{ vals.polar=r(.5,1); vals.scaleA=r(1,3); vals.warp=r(.8,1.8); vals.ring=r(.6,1.3);
+            vals.ringPos=r(.35,.7); vals.core=r(.3,.9); vals.contrast=r(.5,1.2); vals.symmetry=1; },
+      ()=>{ vals.scaleBX=r(14,28); vals.scaleBY=r(.5,2); vals.warp=r(1,2.4);
+            vals.polar=Math.random()<.5?0:r(.4,1); vals.contrast=r(.6,1.4); vals.fibers=r(.15,.4); },
+      ()=>{ vals.mirx=1; vals.dirA=1.57; vals.driftA=r(.4,.9); vals.scaleA=r(1.5,3.5);
+            vals.contrast=r(.3,.9); vals.horizon=r(.4,1); vals.horizonY=r(-.4,0); vals.polar=0; },
+      ()=>{ vals.symmetry=2+Math.floor(Math.random()*6); vals.twist=r(-1.2,1.2); vals.warp=r(.8,2);
+            vals.chroma=r(.8,2); vals.ring=r(.3,1); vals.ringPos=r(.3,.6); },
+      ()=>{ vals.lift=r(-.3,-.1); vals.contrast=r(1,1.8); vals.gain=r(1,1.8); vals.stars=r(.5,1.1);
+            vals.sparkle=r(.2,.6); vals.core=r(.2,.6); vals.bgLight=0; },
+    ];
+    if(Math.random()<.45) RECIPES[Math.floor(Math.random()*RECIPES.length)]();
   } else {
     vals.warp=r(.3,2); vals.flow=r(.3,1.8); vals.spectrum=r(.4,2.2); vals.hue=Math.random();
     vals.zoom=r(.6,1.6); vals.glow=r(.2,1.4); vals.chroma=r(0,2);
     vals.symmetry=Math.random()<.65?1:(2+Math.floor(Math.random()*6));
     vals.rot=r(0,6.28); vals.twist=Math.random()<.6?0:r(-1.5,1.5);
-    vals.fibers=Math.random()<.6?vals.fibers:r(.15,.7);
+    const FIBER_OK={silk:1,cathedral:1,iris:1,moth:1,veil:1};
+    vals.fibers = FIBER_OK[cur.id] ? (Math.random()<.5?0:r(.15,.45)) : 0;
+    vals.stars = Math.random()<.55 ? vals.stars : r(.2,.9);
+    if(cur.id==="clouds"){            // keep the painting a painting
+      vals.chroma=r(0,.35); vals.glow=r(.2,.55); vals.spectrum=r(.3,1);
+      vals.warp=r(.6,1.6); vals.symmetry=1; vals.sat=r(1,1.25); vals.zoom=r(.85,1.2);
+    }
   }
   syncSliders(); say("New variation");
 };
 document.getElementById("bPng").onclick=()=>{
   const a=document.createElement("a");
-  a.download="iris-"+cur.id+"-"+Date.now()+".png";
+  a.download="tripout-"+cur.id+"-"+Date.now()+".png";
   a.href=canvas.toDataURL("image/png"); a.click(); say("Still saved");
 };
 
@@ -1609,7 +1851,7 @@ bRec.onclick=()=>{
   recorder.onstop=()=>{
     const ext=(recorder.mimeType||"").includes("mp4")?"mp4":"webm";
     const blob=new Blob(chunks,{type:recorder.mimeType||"video/webm"});
-    const a=document.createElement("a"); a.download="iris-"+cur.id+"-live-"+Date.now()+"."+ext;
+    const a=document.createElement("a"); a.download="tripout-"+cur.id+"-live-"+Date.now()+"."+ext;
     a.href=URL.createObjectURL(blob); a.click();
     recorder=null; bRec.textContent="Rec Live"; bRec.classList.remove("live");
     const pr=document.getElementById("pfRec"); if(pr) pr.classList.remove("live");
@@ -1641,7 +1883,7 @@ function bakeShaderToy(){
   // untouched portal → clean baked ShaderToy version with current values
   const keys=uniformKeysForMode(cur.mode);
   const e=effective();
-  let h="// IRIS · Portal Lab — \""+cur.name+"\"\n// Your exact settings, baked in. Paste into shadertoy.com → New.\n\n";
+  let h="// Trip Out — \""+cur.name+"\"\n// Your exact settings, baked in. Paste into shadertoy.com → New.\n\n";
   for(const k of keys) h+="const float "+byKey[k].u+" = "+(+(e[k]!==undefined?e[k]:byKey[k].min)).toFixed(3)+";\n";
   h+="const vec2 uMouse = vec2(0.0);\nconst vec3 uTap = vec3(0.0);\n#define uTime iTime\n";
   const main=`
@@ -1660,7 +1902,60 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
   vec2 suv = uv;
   float tubeR = length(uv);
   vec3 col;
-  if(uTube > 0.5){
+  if(uOrb > 0.5){
+    vec2 ouv = uv;
+    vec2 halfV = vec2(iResolution.x/iResolution.y*0.5, 0.5)/uZoom;
+    float minEdge = 1e9; float bestD = 1e9; float bR = 0.0; float bId = 0.0;
+    vec2 bLp = vec2(0.0);
+    for(int i=0; i<30; i++){
+      float fi = float(i);
+      if(fi > uOrbCount - 0.5) break;
+      float h1 = hash(vec2(fi, 7.0)); float h2 = hash(vec2(fi, 13.0));
+      float R = (uOrbCount < 1.5) ? 0.40
+              : mix(0.30, 0.11, clamp(uOrbCount/30.0, 0.0, 1.0)) * (0.7 + 0.6*hash(vec2(fi, 3.0)));
+      vec2 rng = max(halfV - R - 0.03, vec2(0.0));
+      vec2 pos; vec2 prox = vec2(0.0);
+      if(uBounce > 0.5){
+        vec2 ph = vec2(uTime*uSpeed*(0.09 + h1*0.10) + h1*7.0,
+                       uTime*uSpeed*(0.12 + h2*0.11) + h2*5.0);
+        vec2 tw2 = abs(fract(ph)*2.0 - 1.0)*2.0 - 1.0;
+        pos = tw2 * rng;
+        prox = smoothstep(0.86, 1.0, abs(tw2));
+      } else {
+        pos = (uOrbCount < 1.5) ? vec2(0.0)
+            : (vec2(h1, h2)*2.0 - 1.0) * rng * 0.9
+              + 0.05*vec2(sin(uTime*uSpeed*(0.3 + h1) + fi),
+                          cos(uTime*uSpeed*(0.25 + h2) + fi*2.0));
+      }
+      vec2 lp = uv - pos;
+      float sq = 1.0 - uOrbHard;
+      lp.x *= 1.0 + prox.x*sq*0.5 - prox.y*sq*0.25;
+      lp.y *= 1.0 + prox.y*sq*0.5 - prox.x*sq*0.25;
+      float d = length(lp);
+      minEdge = min(minEdge, d - R);
+      if(d < R && d < bestD){ bestD = d; bLp = lp; bR = R; bId = fi; }
+    }
+    if(bestD < bR){
+      float R = bR; float rr = bestD;
+      vec3 n0 = vec3(bLp/R, sqrt(max(R*R - rr*rr, 0.0))/R);
+      float oa = uTime*uSpeed*uOrbSpin + uRot + bId*2.4;
+      float oc = cos(oa); float os = sin(oa);
+      vec3 n = vec3(oc*n0.x + os*n0.z, n0.y, -os*n0.x + oc*n0.z);
+      vec2 tuv = n.xy/(abs(n.z) + 0.7)*0.72;
+      col = postfx(tuv, suv, fragCoord, uTime*uSpeed);
+      vec3 ldir = normalize(vec3(-0.45, 0.55, 0.7));
+      col *= 0.3 + 0.7*max(dot(n0, ldir), 0.0);
+      col += vec3(1.0)*pow(max(dot(reflect(-ldir,n0),vec3(0.0,0.0,1.0)),0.0),28.0)*0.5;
+      col += spectral(uHue)*pow(1.0 - n0.z, 3.0)*0.6;
+    } else {
+      col = vec3(0.004,0.005,0.01);
+      vec3 stT = mix(vec3(0.72,0.88,1.0), spectral(uHue+0.45), 0.3);
+      col += stT * starLayer(ouv, uTime*uSpeed) * uStars * 1.4;
+      col += spectral(uHue) * exp(-max(minEdge, 0.0)*6.0) * 0.35;
+      col *= clamp(1.0 - uVignette*dot(ouv,ouv)*0.9, 0.0, 1.0);
+      col += (hash(fragCoord + mod(uTime,100.0)) - 0.5)*uGrain*0.15;
+    }
+  } else if(uTube > 0.5){
     float ta = atan(uv.y, uv.x);
     float ax = (abs(ta)*0.6366 - 0.5)*1.6;
     float depth = 0.35/(tubeR + 0.05) + uTime*uSpeed*0.6;
@@ -1677,7 +1972,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
   }
   fragColor = vec4(col, 1.0);
 }`;
-  return h + GLSL_COMMON + cur.scene + "\n" + GLSL_POST + main;
+  return h + GLSL_COMMON + GLSL_STARFIELD + cur.scene + "\n" + GLSL_POST + main;
 }
 
 document.getElementById("bCode").onclick=()=>{
@@ -1819,7 +2114,7 @@ function applyLook(hashStr){
 document.getElementById("bShare").onclick=async ()=>{
   const url=location.href.split("#")[0]+"#"+encodeLook();
   try{
-    if(navigator.share){ await navigator.share({title:"IRIS portal", url}); return; }
+    if(navigator.share){ await navigator.share({title:"Trip Out", url}); return; }
     await navigator.clipboard.writeText(url);
     say(location.protocol==="file:" ? "Link copied — works once the file is hosted" : "Link copied — send it to anyone");
   }catch(e){
@@ -1878,6 +2173,7 @@ function wait(ms){ return new Promise(r=>setTimeout(r,ms)); }
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
 
 bGo.onclick=async ()=>{
+  music.renderMute = true;             // offline renders are pure time-math
   if(rendering) return;
   rendering=true; cancelRender=false;
   bGo.style.display="none"; progWrap.style.display="flex";
@@ -1931,7 +2227,7 @@ bGo.onclick=async ()=>{
         muxer.finalize();
         const blob = new Blob([muxer.target.buffer], {type: useMp4?"video/mp4":"video/webm"});
         const a=document.createElement("a");
-        a.download="iris-"+cur.id+"-"+RH+"p"+rOpts.fps+"-"+Date.now()+(useMp4?".mp4":".webm");
+        a.download="tripout-"+cur.id+"-"+RH+"p"+rOpts.fps+"-"+Date.now()+(useMp4?".mp4":".webm");
         a.href=URL.createObjectURL(blob); a.click();
         say("Rendered "+frames+" frames · exactly "+rOpts.dur+"s · "+(useMp4?"MP4":"WebM"));
       } else { try{ enc.close(); }catch(_){ } }
@@ -1956,7 +2252,7 @@ bGo.onclick=async ()=>{
         progTxt.textContent="zipping… (this can take a minute)";
         const out=await zip.generateAsync({type:"blob"}, m=>{ progBar.style.width=m.percent+"%"; });
         const a=document.createElement("a");
-        a.download="iris-"+cur.id+"-"+RH+"p"+rOpts.fps+"-frames.zip";
+        a.download="tripout-"+cur.id+"-"+RH+"p"+rOpts.fps+"-frames.zip";
         a.href=URL.createObjectURL(out); a.click();
         say("PNG sequence saved — drag the folder into Resolve");
       }
@@ -1967,6 +2263,7 @@ bGo.onclick=async ()=>{
   }finally{
     canvas.width=oldW; canvas.height=oldH;
     simTime=t0; playing=wasPlaying; rendering=false;
+    music.renderMute = false;
     bGo.style.display=""; progWrap.style.display="none"; progBar.style.width="0%";
   }
 };
