@@ -12,6 +12,7 @@
     --paper:#FDFCF8;
     --ink:#141416;
     --rule:rgba(20,20,22,.16);
+    --wash2:#f4f2ea;--mark2:#b8b4a8;--body2:#3c3c42;
     --rule2:rgba(20,20,22,.08);
     --dim:#6E6B76;
     --faint:#A6A2AE;
@@ -26,7 +27,7 @@
   #glc{width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
 
   /* ---------- dock ---------- */
-  #panel{position:fixed;z-index:6;background:var(--paper);display:flex;flex-direction:column;gap:12px;
+  #panel{position:fixed;z-index:6;background:var(--paper);display:flex;flex-direction:column;gap:0;
     transition:transform .35s cubic-bezier(.2,.8,.2,1)}
   .dockhead{display:flex;justify-content:space-between;align-items:flex-start;flex:none;border-bottom:1px solid var(--ink);padding-bottom:10px}
   .mark{font-family:var(--disp);font-size:30px;letter-spacing:.06em;font-weight:400;line-height:1}
@@ -37,37 +38,101 @@
   #grab .bar{width:38px;height:3px;border-radius:2px;background:var(--rule)}
   #grab .lbl{font-family:var(--mono);font-size:9px;letter-spacing:.25em;text-transform:uppercase}
 
-  .secLabel{font-size:9px;letter-spacing:.28em;text-transform:uppercase;color:var(--dim);display:flex;justify-content:space-between;align-items:baseline}
-  .secLabel span{color:var(--faint);letter-spacing:.1em;text-transform:none}
+  #tabRow{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--ink);flex:none}
+  #tabRow button{padding:12px;border:0;background:var(--paper);color:var(--dim);cursor:pointer;
+    font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase}
+  #tabRow button+button{border-left:1px solid var(--rule)}
+  #tabRow button.on{background:var(--ink);color:var(--paper)}
+  #dockBody{flex:1;overflow-y:auto;scrollbar-width:thin;min-height:0}
+  #pinned{flex:none;border-top:1px solid var(--ink)}
+  .pSec{padding:20px 0 16px;display:flex;flex-direction:column;gap:12px}
+  .eyeRow{display:flex;justify-content:space-between;align-items:baseline}
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+  .cnt,.moreCnt{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:var(--dim)}
+  .ovRow{display:flex;justify-content:space-between;align-items:center}
+  .ovBtns{display:flex;gap:16px}
+  .tert{border:0;background:none;cursor:pointer;color:var(--ink);font-family:var(--mono);
+    font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;padding:0 0 1px;border-bottom:1px solid var(--mark2)}
+  .tert:hover{border-bottom-color:var(--ink)}
+  .modeSec{border-top:1px solid var(--rule);gap:9px;padding-top:14px}
+  .modeEyebrow{margin-bottom:2px}
+  .modeRow{display:flex;align-items:center;gap:14px;border:1px solid var(--ink);background:var(--paper);
+    padding:14px 16px;cursor:pointer;text-align:left;width:100%}
+  .modeRow .mg{font-size:17px;width:20px;text-align:center;color:var(--ink)}
+  .modeRow .ml{font-family:var(--mono);font-size:12.5px;letter-spacing:.18em;color:var(--ink);display:flex;flex-direction:column;gap:3px}
+  .modeRow .ms{font-size:8.5px;letter-spacing:.06em;color:var(--dim);text-transform:none}
+  .modeRow .ma{margin-left:auto;font-family:var(--mono);font-size:13px;color:var(--dim)}
+  .modeRow:hover{background:var(--wash2)}
+  .modeRow.on{background:var(--ink)}
+  .modeRow.on .mg,.modeRow.on .ml{color:var(--paper)}
+  .modeRow.on .ms,.modeRow.on .ma{color:rgba(253,252,248,.6)}
+  #grpIndex{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--rule);flex-wrap:nowrap}
+  #grpIndex span{font-family:var(--mono);font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:var(--dim);
+    padding:2px 3px 3px;cursor:pointer;white-space:nowrap}
+  #grpIndex span.on{color:var(--ink);border-bottom:1.5px solid var(--ink)}
+  .frameRow{display:flex;align-items:center;gap:10px;padding:14px 0;border-top:0}
+  .frameLbl{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+  .utilStrip{display:flex;flex-wrap:wrap;gap:8px 14px;padding:12px 0 10px;border-top:1px solid var(--rule)}
+  .util{border:0;background:none;cursor:pointer;color:var(--ink);font-family:var(--mono);
+    font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;padding:0}
+  .util:hover{border-bottom:1px solid var(--mark2);margin-bottom:-1px}
+  .dockFoot{display:flex;justify-content:space-between;align-items:center;padding:10px 0 14px;border-top:1px solid var(--rule);
+    font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:var(--dim)}
+  .footBtns{display:flex;gap:8px;align-items:center}
+  .fdot{color:var(--mark2)}
+  #livePill{position:absolute;left:24px;bottom:24px;z-index:5;display:none;align-items:center;gap:10px;
+    padding:8px 14px;background:rgba(6,5,15,.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+    font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:var(--paper);text-transform:uppercase;pointer-events:none}
+  #livePill i{width:6px;height:6px;border-radius:50%;background:#b6ff3a;display:block}
+  #livePill.show{display:flex}
 
   #blankRow{flex:none}
-  .blankBtn{width:100%;background:var(--ink);color:var(--paper);border:1px solid var(--ink);
-    font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;padding:12px;cursor:pointer}
-  .blankBtn.on{outline:2px solid var(--ink);outline-offset:2px}
-
-  .chips{display:flex;gap:2px 14px;flex-wrap:wrap;flex:none;padding:2px 0}
-  .chip{border:0;background:none;color:var(--dim);font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;
-    text-transform:uppercase;padding:4px 0;cursor:pointer;border-bottom:1px solid transparent}
-  .chip.on{color:var(--ink);border-bottom-color:var(--ink)}
-
-  #sliders{overflow-y:auto;padding:0 1px 4px;scrollbar-width:thin}
+  .blankBtn{width:100%;background:var(--paper);color:var(--ink);border:1px solid var(--ink);cursor:pointer;
+    display:flex;justify-content:space-between;align-items:center;padding:11px 14px;
+    font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase}
+  .blankBtn .bsub{font-size:9px;letter-spacing:.1em;color:var(--dim)}
+  .blankBtn.on{background:var(--ink);color:var(--paper)}
+  .blankBtn.on .bsub{color:rgba(253,252,248,.6)}
+  .chips{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:2px 0}
+  .chip{border:0;background:none;padding:0;cursor:pointer;text-align:left;display:none}
+  .chip.vis{display:block}
+  .chip .th{width:100%;aspect-ratio:7/5;object-fit:cover;display:block;border:1px solid var(--rule);background:#0a0a12}
+  .chip .cap{display:block;margin-top:5px;font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chip.on .th{border-color:var(--ink)}
+  .chip.on .cap{color:var(--ink)}
+  #sliders{overflow:visible;padding:0 1px 4px}
   details.grp{border-top:1px solid var(--rule)}
   details.grp:last-child{border-bottom:1px solid var(--rule)}
   details.grp>summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;
-    padding:11px 1px;font-size:10px;letter-spacing:.26em;text-transform:uppercase;color:var(--ink)}
+    padding:14px 0 8px;font-family:var(--disp);font-size:17px;color:var(--dim)}
+  details.grp[open]>summary{font-size:22px;color:var(--ink);padding:18px 0 6px}
   details.grp>summary::-webkit-details-marker{display:none}
   details.grp>summary::after{content:"+";color:var(--dim);font-size:13px}
   details.grp[open]>summary::after{content:"–"}
   .grpbody{display:grid;grid-template-columns:1fr;gap:1px 18px;padding:0 1px 12px}
 
-  details.lesson{grid-column:1/-1;border:1px solid var(--rule);background:rgba(20,20,22,.025);margin-bottom:8px}
+  details.lesson{grid-column:1/-1;border:1px solid var(--rule);background:var(--wash2);margin-bottom:8px}
   details.lesson summary{list-style:none;cursor:pointer;font-size:9px;letter-spacing:.18em;text-transform:uppercase;
     color:var(--dim);padding:8px 10px}
   details.lesson summary::-webkit-details-marker{display:none}
   details.lesson summary::before{content:"ⓘ ";}
-  .lessonBody{padding:0 10px 10px;font-size:10.5px;line-height:1.75;color:var(--ink);letter-spacing:.01em}
+  .lessonBody{padding:0 10px 10px;font-size:11.5px;line-height:1.5;color:var(--body2);letter-spacing:.01em}
   .lessonBody code{display:block;margin-top:7px;padding:8px 9px;background:var(--ink);color:var(--paper);
     font-size:10px;line-height:1.6;white-space:pre-wrap;letter-spacing:0}
+  .musSeg{display:flex}
+  .musSeg button{flex:1;padding:8px 0;border:1px solid var(--rule);border-left:none;background:var(--paper);
+    color:var(--dim);cursor:pointer;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+  .musSeg button:first-child{border-left:1px solid var(--rule)}
+  .musSeg button.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .musSeg button.nx{flex:0 0 44px}
+  .slab{width:100%;display:flex;justify-content:space-between;align-items:center;padding:11px;cursor:pointer;
+    border:1px solid var(--ink);background:var(--paper);color:var(--ink);
+    font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase}
+  .slab .st{font-size:9px;letter-spacing:.1em}
+  .slab.on{background:var(--ink);color:var(--paper)}
+  .musRow2{display:flex;justify-content:space-between;align-items:center}
+  .musTog{border:0;background:none;cursor:pointer;color:var(--dim);font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase}
 
   .ctl{display:grid;grid-template-columns:1fr auto;align-items:baseline;gap:0 10px}
   .ctl label{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink)}
@@ -94,8 +159,13 @@
   .actions .wide{grid-column:1/-1}
   #bMusic.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
   .musHead{display:flex;flex-direction:column;gap:7px;margin:2px 0 8px}
-  .meters{display:flex;gap:4px;height:15px;align-items:flex-end}
-  .meters i{width:16px;background:var(--ink);display:block;height:2px;transition:height .05s linear}
+  .meters{display:flex;gap:14px;height:40px;align-items:flex-end}
+  .meters i{width:7px;background:var(--ink);display:block;height:2px;transition:height .05s linear}
+  .meters.idle i{background:var(--rule)}
+  .meterHead{display:flex;align-items:flex-end}
+  .meterHead .bpm{margin-left:auto;font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--dim)}
+  .meterLbls{display:flex;gap:14px;margin-top:4px}
+  .meterLbls b{width:7px;text-align:center;font-family:var(--mono);font-weight:400;font-size:8.5px;letter-spacing:.06em;color:var(--dim)}
   .mrow{display:flex;gap:6px;align-items:center}
   .mrow .btn{flex:1}
   .msel{flex:1;border:1px solid var(--rule);background:var(--paper);color:var(--ink);
@@ -122,10 +192,10 @@
 
   /* desktop: right dock, framed canvas — like the reference */
   @media (min-width:900px){
-    #stage{top:14px;left:14px;bottom:14px;right:372px;border:1px solid var(--ink);transition:right .35s}
+    #stage{top:14px;left:14px;bottom:14px;right:394px;border:1px solid var(--ink);transition:right .35s}
     body.dockhidden #stage{right:54px}
-    #panel{top:0;right:0;bottom:0;width:358px;border-left:1px solid var(--ink);
-      padding:calc(16px + env(safe-area-inset-top)) 20px 16px}
+    #panel{top:0;right:0;bottom:0;width:380px;border-left:1px solid var(--ink);
+      padding:calc(16px + env(safe-area-inset-top)) 26px 16px}
     #panel.hidden{transform:translateX(calc(100% - 40px))}
     #grab{order:99;padding-top:8px}
     .grpbody{grid-template-columns:1fr 1fr}
@@ -215,50 +285,74 @@
 </head>
 <body>
 
-<div id="stage"><canvas id="glc"></canvas></div>
+<div id="stage"><canvas id="glc"></canvas><div id="livePill"><i></i><span id="pillTxt"></span></div></div>
 
 <div id="panel">
   <div class="dockhead">
     <div class="mark">TR<i>I</i>P OUT</div>
-    <div class="tag">Portal instrument<br>Real GLSL, live<br>Play it like a rig</div>
+    <div class="tag" id="dockTag">Portal instrument<br>Real GLSL, live<br>Play it like a rig</div>
   </div>
   <button id="grab" aria-label="Show or hide controls"><span class="bar"></span><span class="lbl" id="grabLbl">hide controls</span></button>
-
-  <div id="blankRow">
-    <button class="blankBtn on" id="bBlank">◇ Blank Canvas</button>
+  <div id="tabRow">
+    <button id="tabPlay" class="on">PLAY</button><button id="tabBuild">BUILD</button>
   </div>
-
-  <div class="secLabel">Studies <span>worked examples — open The Glass to read how they're made</span></div>
-  <div class="chips" id="chips"></div>
-
-  <div id="sliders"></div>
-
-  <div class="secLabel" style="flex:none">Frame</div>
-  <div class="seg" id="segFrame" style="flex:none">
-    <button data-a="fit" class="on">Fit</button>
-    <button data-a="1">1:1</button>
-    <button data-a="1.7778">16:9</button>
-    <button data-a="0.5625">9:16</button>
-    <button data-a="0.8">4:5</button>
-    <button data-a="2.39">2.39</button>
+  <div id="dockBody">
+    <div id="viewPlay">
+      <div class="pSec">
+        <div class="eyeRow"><span class="eyebrow">Portals</span><span class="cnt" id="portalCnt"></span></div>
+        <div id="blankRow">
+          <button class="blankBtn" id="bBlank"><span>&#9671; BLANK CANVAS</span><span class="bsub">SANDBOX</span></button>
+        </div>
+        <div class="chips" id="chips"></div>
+        <div class="ovRow">
+          <span class="moreCnt" id="moreCnt"></span>
+          <span class="ovBtns">
+            <button class="tert" id="bRand">&#10683; RANDOMIZE</button>
+            <button class="tert" id="bShowAll">SHOW ALL &#9662;</button>
+          </span>
+        </div>
+      </div>
+      <div class="pSec modeSec">
+        <div class="eyebrow modeEyebrow">Choose a mode</div>
+        <button class="modeRow" id="bMusic"><span class="mg">&#9834;</span><span class="ml">MUSIC MODE<span class="ms">songs conduct the visuals</span></span><span class="ma">&#8594;</span></button>
+        <button class="modeRow" id="bPerform"><span class="mg">&#9974;</span><span class="ml">DJ MODE<span class="ms">perform live, full screen</span></span><span class="ma">&#8594;</span></button>
+        <button class="modeRow" id="bBuildMode"><span class="mg">&#8801;</span><span class="ml">BUILD MODE<span class="ms">shape every parameter</span></span><span class="ma">&#8594;</span></button>
+      </div>
+    </div>
+    <div id="viewBuild" style="display:none">
+      <div id="grpIndex"></div>
+      <div id="sliders"></div>
+      <div class="performRow">
+        <span>X &#8596;</span><select id="selX"></select>
+        <span>Y &#8597;</span><select id="selY"></select>
+      </div>
+    </div>
   </div>
-
-  <div class="performRow">
-    <span>X ↔</span><select id="selX"></select>
-    <span>Y ↕</span><select id="selY"></select>
-  </div>
-
-  <div class="actions">
-    <button class="btn wide" id="bMusic">♪ Music</button>
-    <button class="btn" id="bPlay">Pause</button>
-    <button class="btn" id="bRand">Randomize</button>
-    <button class="btn" id="bPng">Still</button>
-    <button class="btn rec" id="bRec">Rec Live</button>
-    <button class="btn prime" id="bRender">Render Clip</button>
-    <button class="btn" id="bCode">The Glass</button>
-    <button class="btn wide" id="bProj">Project ⛶</button>
-    <button class="btn prime" id="bPerform">DJ Mode ⛶</button>
-    <button class="btn" id="bShare">Share Look</button>
+  <div id="pinned">
+    <div class="frameRow">
+      <span class="frameLbl">FRAME</span>
+      <div class="seg" id="segFrame">
+        <button data-a="fit" class="on">Fit</button>
+        <button data-a="1">1:1</button>
+        <button data-a="1.7778">16:9</button>
+        <button data-a="0.5625">9:16</button>
+        <button data-a="0.8">4:5</button>
+        <button data-a="2.39">2.39</button>
+      </div>
+    </div>
+    <div class="utilStrip">
+      <button class="util" id="bPlay">&#10073;&#10073; Pause</button>
+      <button class="util" id="bPng">&#9635; Still</button>
+      <button class="util rec" id="bRec">&#9679; Rec Live</button>
+      <button class="util" id="bRender">&#11027; Render Clip</button>
+      <button class="util" id="bProj">&#9974; Project</button>
+      <button class="util" id="bCode">&#8984; The Glass</button>
+      <button class="util" id="bShare">&#8599; Share Look</button>
+    </div>
+    <div class="dockFoot">
+      <span>&copy; KIMBERLY LOCKE</span>
+      <span class="footBtns"><button class="tert" id="bDriftAll">DRIFT ALL ~</button><span class="fdot">&#183;</span><button class="tert" id="bReset">RESET</button></span>
+    </div>
   </div>
 </div>
 
@@ -480,7 +574,6 @@ const CTLS = [
   {k:"driftAmt",u:"",         label:"Drift Depth", min:0,max:1,   step:.01, group:"Motion", jsOnly:true},
   {k:"musicAmt", u:"",        label:"Amount",      min:0,max:1,   step:.01, group:"Music", jsOnly:true},
   {k:"musicSens",u:"",        label:"Sensitivity", min:.3,max:3,  step:.01, group:"Music", jsOnly:true},
-  {k:"beatRipples",u:"",      label:"Beat Ripples",min:0,max:1,   step:1,   group:"Music", jsOnly:true, toggle:true},
 
   {k:"zoom",    u:"uZoom",    label:"Zoom",        min:.35,max:2.5,step:.01,group:"Space"},
   {k:"symmetry",u:"uSymmetry",label:"Kaleidoscope",min:1,max:8,   step:1,   group:"Space"},
@@ -550,8 +643,8 @@ const LESSONS = {
     code:"if(uMirX > 0.5) p.x = abs(p.x);   // mirror = absolute value\nfloat ang = atan(p.y,p.x) + uTwist*r;  // twist = angle grows with radius"
   },
   Music: {
-    text:"Music mode listens with a Fourier transform \u2014 math from 1965, zero AI. Each frame the sound splits into bands: Bass (the kick), Mid (voices, synths), Treble (hats, air), plus a Beat pulse that fires when the low end jumps above its own recent average \u2014 an onset detector, not a model. Auto-gain keeps a whisper and a club PA in the same range, and beats are capped at three per second (a photosensitivity guard venues expect). Amount is the master depth. Auto-Route wires sensible moves for this portal; open Routing to wire any slider yourself \u2014 B, M, T or \u2665 for beat. While Music is on, the drift engine itself becomes the orchestra: the song\u2019s energy sets the tempo of every breath, kicks snap Space and Light forward while Color and Post glide, and stacked harmonies (the H meter) make the color sing.",
-    code:"bins = FFT(microphone)         // sound -> frequencies\nbass = avg(bins[25..150 Hz])\nbeat: bass > 1.45 * rollingAvg // an onset, not AI"
+    text:"Music mode listens with a Fourier transform \u2014 math from 1965. Each frame the sound splits into bands: Bass (the kick), Mid (voices, synths), Treble (hats, air), plus a Beat pulse that fires when the low end jumps above its own recent average \u2014 a classic onset detector. Auto-gain keeps a whisper and a club PA in the same range, and beats are capped at three per second (a photosensitivity guard venues expect). Amount is the master depth. Auto-Route wires sensible moves for this portal; open Routing to wire any slider yourself \u2014 B, M, T or \u2665 for beat. While Music is on, the drift engine itself becomes the orchestra: the song\u2019s energy sets the tempo of every breath, kicks snap Space and Light forward while Color and Post glide, and stacked harmonies (the H meter) make the color sing.",
+    code:"bins = FFT(microphone)         // sound -> frequencies\nbass = avg(bins[25..150 Hz])\nbeat: bass > 1.45 * rollingAvg // an onset detector"
   },
   Orb: {
     text:"Any portal wrapped onto lit 3D spheres. The sphere trick: for a pixel inside the circle, its height off the screen is z = sqrt(R\u00b2-r\u00b2) \u2014 that gives a 3D normal for lighting and a curved lookup into the portal. Orb Spin turns the ball (the DJ Spin tool grabs the same axis, so you can spin it by hand). Hardness is squash-and-stretch: rigid at 1, jelly at 0 \u2014 the ball deforms as it hits walls. Orbs multiplies them: every ball gets its own size, path, and spin phase, and each pixel only ever renders its nearest ball, so thirty cost barely more than one.",
@@ -1352,7 +1445,7 @@ function addRipple(x,y){
   if(ripples.length>8) ripples.shift();
 }
 
-/* -------- music engine — a Fourier transform and taste, no AI -------- */
+/* -------- music engine — a Fourier transform and taste -------- */
 const music = {
   on:false, ctx:null, analyser:null, src:null, stream:null, deviceId:"", renderMute:false,
   bins:null, sig:{bass:0,mid:0,treble:0,level:0,beat:0},
@@ -1417,6 +1510,31 @@ function musicAttach(st, msg){
   if(!Object.keys(musicRoutes).length) autoRoute();
   setMusicUI(true); say(msg);
 }
+function syncSeg(){
+  const seg=document.getElementById("musSeg"); if(!seg) return;
+  for(const b of seg.children){
+    b.classList.toggle("on", music.on && (
+      (b.dataset.in==="mic"   && music.inputKind==="MIC") ||
+      (b.dataset.in==="tab"   && music.inputKind==="TAB AUDIO") ||
+      (b.dataset.in==="files" && music.inputKind==="FILE")));
+  }
+}
+async function musicCycleMic(){            // tap MIC again to step through inputs
+  if(music.on && music.inputKind==="MIC"){
+    try{
+      const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="audioinput"&&d.deviceId);
+      if(ds.length>1){
+        const i=Math.max(0, ds.findIndex(d=>d.deviceId===music.deviceId));
+        const nx=ds[(i+1)%ds.length];
+        music.deviceId=nx.deviceId;
+        await musicStart(nx.deviceId);
+        say("Input: "+(nx.label||"microphone"));
+        return;
+      }
+    }catch(e){}
+  }
+  musicStart(music.deviceId);
+}
 async function musicStart(devId){
   try{
     music.ctx = music.ctx || new (window.AudioContext||window.webkitAudioContext)();
@@ -1424,8 +1542,8 @@ async function musicStart(devId){
     const opts = {echoCancellation:false, noiseSuppression:false, autoGainControl:false};
     if(devId) opts.deviceId = {exact:devId};
     const st = await navigator.mediaDevices.getUserMedia({audio:opts});
-    musicAttach(st, "Listening \u266a \u2014 Drift is paused while Music is on");
-    listInputs();
+    music.inputKind="MIC";
+    musicAttach(st, "Listening \u266a");
   }catch(err){
     music.on = false; setMusicUI(false);
     say("Mic blocked \u2014 allow microphone access and try again");
@@ -1455,6 +1573,7 @@ async function musicStartFile(file){    // Phase 2: play a track inside the app
     };
     music.audioEl.src = URL.createObjectURL(file);
     await music.audioEl.play();
+    music.inputKind="FILE";
     music.on = true;
     if(!Object.keys(musicRoutes).length) autoRoute();
     setMusicUI(true);
@@ -1474,6 +1593,7 @@ async function musicStartTab(){           // capture a Chrome tab's sound direct
       return;
     }
     st.getAudioTracks()[0].onended = ()=>musicStop();
+    music.inputKind="TAB AUDIO";
     musicAttach(st, "Listening to tab audio \u266a \u2014 a perfect signal");
   }catch(err){ say("Tab share cancelled"); }
 }
@@ -1488,6 +1608,10 @@ function setMusicUI(on){
   const b1=document.getElementById("bMusic"), b2=document.getElementById("pfMusic");
   if(b1) b1.classList.toggle("on",on);
   if(b2) b2.classList.toggle("on",on);
+  const mm=document.getElementById("musMeters"); if(mm) mm.classList.toggle("idle",!on);
+  const pill=document.getElementById("livePill"); if(pill) pill.classList.toggle("show",on);
+  syncSeg();
+  if(typeof updateDockTag==="function") updateDockTag();
 }
 async function listInputs(){           // device labels appear after permission
   try{
@@ -1557,6 +1681,8 @@ function musicUpdate(dt){
   const onset = fluxOnset || bassOnset;
   if(onset && simTime-music.lastBeat > 0.34){
     music.lastBeat=simTime; music.beatPk=1;
+    music.beatTimes=music.beatTimes||[]; music.beatTimes.push(simTime);
+    if(music.beatTimes.length>9) music.beatTimes.shift();
     music.phaseKick += 0.5;                // motion turns a corner on the kick
     if((vals.beatRipples==null?0:vals.beatRipples) > 0.5){
       const rc=canvas.getBoundingClientRect();          // a shockwave lands somewhere new
@@ -1599,8 +1725,18 @@ function musicUpdate(dt){
   if(mm){
     const v=[music.sig.bass,music.sig.mid,music.sig.treble,music.sig.harm,music.sig.beat];
     const nB=Math.min(mm.children.length, v.length);
-    for(let i=0;i<nB;i++) mm.children[i].style.height=(2+13*Math.min(1,v[i]))+"px";
+    for(let i=0;i<nB;i++) mm.children[i].style.height=(2+36*Math.min(1,v[i]))+"px";
   }
+  let bpmS="";                                          // steady-median BPM
+  const bt=music.beatTimes||[];
+  if(bt.length>=4){
+    const ds=[]; for(let i=1;i<bt.length;i++) ds.push(bt[i]-bt[i-1]);
+    ds.sort((x,y)=>x-y); const md=ds[Math.floor(ds.length/2)];
+    if(md>0.28 && md<2.2) bpmS=Math.round(60/md)+" BPM";
+  }
+  const be=document.getElementById("musBpm"); if(be) be.textContent=bpmS;
+  const px=document.getElementById("pillTxt");
+  if(px) px.textContent="LISTENING \u00b7 "+(music.inputKind||"")+(bpmS?" \u00b7 "+bpmS:"");
 }
 
 /* -------- persistent paint field (liquid light show) --------
@@ -1804,15 +1940,124 @@ function selectPortal(p){
 bBlank.onclick = ()=>selectPortal(PRESETS[0]);
 PRESETS.filter(p=>p.mode!=="free").forEach(p=>{
   const b = document.createElement("button");
-  b.className="chip"; b.textContent=p.name; b.title=p.note; b.dataset.id=p.id;
+  b.className="chip"; b.title=p.note; b.dataset.id=p.id;
+  b.innerHTML='<img class="th" alt=""><span class="cap"></span>';
+  b.querySelector(".cap").textContent=p.name;
   b.onclick = ()=>selectPortal(p);
   chipsEl.appendChild(b);
 });
+let showAllPortals=false;
+function refreshChipVis(){
+  const all=[...chipsEl.children];
+  all.forEach((bt,i)=> bt.classList.toggle("vis", showAllPortals || i<6));
+  document.getElementById("moreCnt").textContent = showAllPortals? "" : "+ "+(all.length-6)+" more";
+  document.getElementById("portalCnt").textContent = (all.length+1);
+  document.getElementById("bShowAll").textContent = showAllPortals? "SHOW LESS \u25b4" : "SHOW ALL \u25be";
+}
+document.getElementById("bShowAll").onclick=()=>{ showAllPortals=!showAllPortals; refreshChipVis(); };
+refreshChipVis();
+const thumbs={};
+function genThumbs(){                      // real canvas snapshots, one per portal
+  const tc=document.createElement("canvas"); tc.width=210; tc.height=150;
+  const g2=tc.getContext("webgl",{preserveDrawingBuffer:true});
+  if(!g2) return;
+  const vsrc="attribute vec2 aP;void main(){gl_Position=vec4(aP,0.,1.);}";
+  const vb=g2.createBuffer(); g2.bindBuffer(g2.ARRAY_BUFFER,vb);
+  g2.bufferData(g2.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),g2.STATIC_DRAW);
+  const pt=g2.createTexture(); g2.bindTexture(g2.TEXTURE_2D,pt);
+  g2.texImage2D(g2.TEXTURE_2D,0,g2.RGBA,1,1,0,g2.RGBA,g2.UNSIGNED_BYTE,new Uint8Array([127,128,127,128]));
+  g2.texParameteri(g2.TEXTURE_2D,g2.TEXTURE_MIN_FILTER,g2.NEAREST);
+  g2.texParameteri(g2.TEXTURE_2D,g2.TEXTURE_MAG_FILTER,g2.NEAREST);
+  g2.texParameteri(g2.TEXTURE_2D,g2.TEXTURE_WRAP_S,g2.CLAMP_TO_EDGE);
+  g2.texParameteri(g2.TEXTURE_2D,g2.TEXTURE_WRAP_T,g2.CLAMP_TO_EDGE);
+  const list=PRESETS.filter(pp=>pp.mode!=="free");
+  let i=0;
+  (function one(){
+    if(i>=list.length) return;
+    const pr=list[i++];
+    try{
+      const src=headerFor(uniformKeysForMode(pr.mode))+GLSL_COMMON+GLSL_STARFIELD+pr.scene+"\n"+GLSL_POST+APP_MAIN;
+      const vs=g2.createShader(g2.VERTEX_SHADER); g2.shaderSource(vs,vsrc); g2.compileShader(vs);
+      const fsh=g2.createShader(g2.FRAGMENT_SHADER); g2.shaderSource(fsh,src); g2.compileShader(fsh);
+      if(g2.getShaderParameter(fsh,g2.COMPILE_STATUS)){
+        const pg=g2.createProgram(); g2.attachShader(pg,vs); g2.attachShader(pg,fsh); g2.linkProgram(pg);
+        g2.useProgram(pg);
+        const aP=g2.getAttribLocation(pg,"aP");
+        g2.enableVertexAttribArray(aP); g2.vertexAttribPointer(aP,2,g2.FLOAT,false,0,0);
+        g2.viewport(0,0,210,150);
+        const u1=(n,v)=>{const l=g2.getUniformLocation(pg,n); if(l) g2.uniform1f(l,v);};
+        const l2=g2.getUniformLocation(pg,"uRes"); if(l2) g2.uniform2f(l2,210,150);
+        u1("uTime",5.0);
+        const lm=g2.getUniformLocation(pg,"uMouse"); if(lm) g2.uniform2f(lm,0,0);
+        const lt=g2.getUniformLocation(pg,"uTap"); if(lt) g2.uniform3f(lt,0,0,-99);
+        const lr=g2.getUniformLocation(pg,"uRipplePts[0]"); if(lr) g2.uniform3fv(lr,new Float32Array(24).fill(-999));
+        u1("uBeat",0); u1("uAud",0);
+        for(const c of CTLS) if(c.u && pr.d[c.k]!=null) u1(c.u, pr.d[c.k]);
+        g2.activeTexture(g2.TEXTURE0); g2.bindTexture(g2.TEXTURE_2D,pt);
+        const lp=g2.getUniformLocation(pg,"uPaint"); if(lp) g2.uniform1i(lp,0);
+        g2.drawArrays(g2.TRIANGLES,0,3);
+        thumbs[pr.id]=tc.toDataURL("image/jpeg",.82);
+        const img=chipsEl.querySelector('.chip[data-id="'+pr.id+'"] .th');
+        if(img) img.src=thumbs[pr.id];
+        g2.deleteProgram(pg);
+      }
+      g2.deleteShader(vs); g2.deleteShader(fsh);
+    }catch(e){}
+    setTimeout(one, 70);
+  })();
+}
+setTimeout(genThumbs, 500);
 function markSelected(){
   bBlank.classList.toggle("on", cur.id==="free");
   for(const b of chipsEl.children) b.classList.toggle("on", b.dataset.id===cur.id);
 }
 markSelected();
+
+/* -------- tabs, group index, footer -------- */
+let dockTab="play";
+function showTab(t){
+  dockTab=t;
+  document.getElementById("viewPlay").style.display = t==="play"?"":"none";
+  document.getElementById("viewBuild").style.display = t==="build"?"":"none";
+  document.getElementById("tabPlay").classList.toggle("on",t==="play");
+  document.getElementById("tabBuild").classList.toggle("on",t==="build");
+  updateDockTag();
+}
+function updateDockTag(){
+  const el=document.getElementById("dockTag"); if(!el) return;
+  if(dockTab==="build")
+    el.innerHTML = cur.name+"<br>Routing "+(musicRoutingUI?"on":"off")+"<br>"+(music.on?(music.inputKind||"listening"):"no input");
+  else el.innerHTML = "Portal instrument<br>Real GLSL, live<br>Play it like a rig";
+}
+function buildIndex(){
+  const ix=document.getElementById("grpIndex"); if(!ix) return;
+  ix.innerHTML="";
+  GROUP_ORDER.forEach(g=>{
+    const sp=document.createElement("span"); sp.textContent=g; sp.dataset.g=g;
+    sp.onclick=()=>{
+      openGroups[g]=true; buildSliders();
+      const d=document.getElementById("grp-"+g);
+      if(d){ d.open=true; d.scrollIntoView({behavior:"smooth",block:"start"}); }
+      [...ix.children].forEach(c=>c.classList.toggle("on",c.dataset.g===g));
+    };
+    ix.appendChild(sp);
+  });
+}
+document.getElementById("tabPlay").onclick=()=>showTab("play");
+document.getElementById("tabBuild").onclick=()=>showTab("build");
+document.getElementById("bBuildMode").onclick=()=>showTab("build");
+document.getElementById("dockBody").addEventListener("scroll", function(){
+  if(dockTab!=="build") return;
+  const ix=document.getElementById("grpIndex"); const st=this.scrollTop+70;
+  let act=null;
+  for(const g of GROUP_ORDER){ const d=document.getElementById("grp-"+g); if(d && d.offsetTop<=st) act=g; }
+  [...ix.children].forEach(c=>c.classList.toggle("on",c.dataset.g===act));
+});
+document.getElementById("bDriftAll").onclick=()=>setAllDrift(true);
+document.getElementById("bReset").onclick=()=>{
+  vals={...cur.d}; driftFlags={...(cur.dd||{hue:1})}; buildSliders(); say("Reset to "+cur.name);
+};
+buildIndex();
 
 /* -------- sliders -------- */
 const slidersEl = document.getElementById("sliders");
@@ -1826,42 +2071,58 @@ function buildSliders(){
   GROUP_ORDER.forEach(g=>{
     if(!groups[g]) return;
     const det=document.createElement("details");
-    det.className="grp"; det.open=!!openGroups[g];
+    det.className="grp"; det.id="grp-"+g; det.open=!!openGroups[g];
     det.addEventListener("toggle",()=>{ openGroups[g]=det.open; });
     const sum=document.createElement("summary"); sum.textContent=g;
     const body=document.createElement("div"); body.className="grpbody";
 
     if(g==="Music"){
       const head=document.createElement("div"); head.className="musHead";
-      head.innerHTML='<div class="meters" id="musMeters"><i></i><i></i><i></i><i></i><i></i></div>'
-        +'<div class="mrow"><select id="musIn" class="msel"><option value="">Default microphone</option></select></div>'
-        +'<div class="mrow"><button class="btn" id="bTabAud" title="Capture a Chrome tab\u2019s audio \u2014 play Spotify at open.spotify.com in a tab">Tab \u266a</button>'
-        +'<button class="btn" id="bMusFile" title="Play audio files inside the app \u2014 pick several for a set">Play Files</button>'
-        +'<button class="btn" id="bMusNext" title="Next track in the set">Next \u25b8</button>'
-        +'<input id="musFileIn" type="file" accept="audio/*" multiple style="display:none"></div>'
-        +'<div class="mrow"><button class="btn" id="bAutoRoute">Auto-Route</button>'
-        +'<button class="btn" id="bRouting">Routing</button></div>';
+      head.innerHTML=
+        '<div class="meterHead"><div class="meters idle" id="musMeters"><i></i><i></i><i></i><i></i><i></i></div>'
+        +'<span class="bpm" id="musBpm"></span></div>'
+        +'<div class="meterLbls"><b>B</b><b>M</b><b>T</b><b>H</b><b>\u2665</b></div>'
+        +'<div class="musSeg" id="musSeg">'
+        +'<button data-in="mic">MIC</button><button data-in="tab">TAB \u266a</button>'
+        +'<button data-in="files">FILES</button><button class="nx" data-in="next" title="Next track">\u25b8</button></div>'
+        +'<input id="musFileIn" type="file" accept="audio/*" multiple style="display:none">'
+        +'<button class="slab" id="bRouting"><span>ROUTING \u2014 <b id="slabTxt">OFF</b></span><span class="st" id="slabSt">\u25cb</span></button>'
+        +'<div class="musRow2"><button class="tert" id="bAutoRoute">AUTO-ROUTE</button>'
+        +'<button class="musTog" id="bBeatRip"></button></div>';
       body.appendChild(head);
-      head.querySelector("#bAutoRoute").onclick=()=>{ autoRoute(); buildSliders(); say("Routed for "+cur.name); };
-      head.querySelector("#bTabAud").onclick=()=>musicStartTab();
       const fIn=head.querySelector("#musFileIn");
-      head.querySelector("#bMusFile").onclick=()=>fIn.click();
-      fIn.onchange=()=>{
-        const fs=[...fIn.files]; if(!fs.length) return;
-        music.queue = fs; music.qi = 0; musicStartFile(fs[0]);
+      head.querySelector("#musSeg").onclick=(e)=>{
+        const t=e.target.dataset.in; if(!t) return;
+        if(t==="mic") musicCycleMic();
+        else if(t==="tab") musicStartTab();
+        else if(t==="files") fIn.click();
+        else if(t==="next"){
+          if(music.queue.length>1){ music.qi=(music.qi+1)%music.queue.length; musicStartFile(music.queue[music.qi]); }
+          else say("Pick several files to make a set");
+        }
       };
-      head.querySelector("#bMusNext").onclick=()=>{
-        if(music.queue.length > 1){
-          music.qi = (music.qi + 1) % music.queue.length;
-          musicStartFile(music.queue[music.qi]);
-        } else say("Pick several files to make a set");
+      fIn.onchange=()=>{ const fs=[...fIn.files]; if(!fs.length) return;
+        music.queue=fs; music.qi=0; musicStartFile(fs[0]); };
+      const slab=head.querySelector("#bRouting");
+      slab.classList.toggle("on",musicRoutingUI);
+      slab.querySelector("#slabTxt").textContent=musicRoutingUI?"MUSIC DRIVES THE SLIDERS":"OFF";
+      slab.querySelector("#slabSt").textContent=musicRoutingUI?"ON \u25cf":"\u25cb";
+      slab.onclick=()=>{
+        musicRoutingUI=!musicRoutingUI;
+        if(musicRoutingUI && !Object.keys(musicRoutes).length) autoRoute();
+        buildSliders(); updateDockTag();
       };
-      const rb=head.querySelector("#bRouting");
-      rb.classList.toggle("on", musicRoutingUI);
-      rb.onclick=()=>{ musicRoutingUI=!musicRoutingUI; buildSliders(); };
-      const sel=head.querySelector("#musIn");
-      sel.onchange=()=>{ music.deviceId=sel.value; if(music.on) musicStart(sel.value); };
-      if(music.on) listInputs();
+      head.querySelector("#bAutoRoute").onclick=()=>{
+        autoRoute(); musicRoutesByPortal[cur.id]={...musicRoutes};
+        buildSliders(); say("Routed for "+cur.name);
+      };
+      const br=head.querySelector("#bBeatRip");
+      br.textContent="BEAT RIPPLES "+((vals.beatRipples||0)>0.5?"\u25cf ON":"\u25cb OFF");
+      br.onclick=()=>{
+        vals.beatRipples=(vals.beatRipples||0)>0.5?0:1;
+        br.textContent="BEAT RIPPLES "+((vals.beatRipples||0)>0.5?"\u25cf ON":"\u25cb OFF");
+      };
+      syncSeg();
     }
     if(LESSONS[g]){
       const les=document.createElement("details"); les.className="lesson";
@@ -1911,18 +2172,17 @@ function buildSliders(){
         db.onclick=()=>{ driftFlags[k]=driftFlags[k]?0:1; db.classList.toggle("on",!!driftFlags[k]); };
         rowBtns.push(db);
       }
-      if(musicRoutingUI && routeEligible(k)){
-        wrap.classList.add(musicRoutes[k]?"driftable":"driftable");
+      if(musicRoutingUI && musicRoutes[k] && routeEligible(k)){
+        wrap.classList.add("driftable");
         const rt=document.createElement("button");
-        rt.className="rt"+(musicRoutes[k]?" on":"");
-        rt.textContent=musicRoutes[k]?SIG_ABBR[musicRoutes[k]]:"\u266a";
-        rt.title="Route music into this slider \u2014 tap to cycle Bass / Mid / Treble / Beat";
+        rt.className="rt on";
+        rt.textContent="\u266a"+SIG_ABBR[musicRoutes[k]];
+        rt.title="This slider is music-driven \u2014 tap to cycle Bass / Mid / Treble / Harmony / Beat / off";
         rt.onclick=()=>{
           const i=(ROUTE_SIGS.indexOf(musicRoutes[k]||"")+1)%ROUTE_SIGS.length;
-          if(ROUTE_SIGS[i]) musicRoutes[k]=ROUTE_SIGS[i]; else delete musicRoutes[k];
-          rt.textContent=musicRoutes[k]?SIG_ABBR[musicRoutes[k]]:"\u266a";
-          rt.classList.toggle("on",!!musicRoutes[k]);
-          musicRoutesByPortal[cur.id]={...musicRoutes};   // remember your wiring
+          if(ROUTE_SIGS[i]){ musicRoutes[k]=ROUTE_SIGS[i]; rt.textContent="\u266a"+SIG_ABBR[musicRoutes[k]]; }
+          else { delete musicRoutes[k]; musicRoutesByPortal[cur.id]={...musicRoutes}; buildSliders(); return; }
+          musicRoutesByPortal[cur.id]={...musicRoutes};
         };
         rowBtns.push(rt);
       }
@@ -1938,14 +2198,6 @@ function buildSliders(){
       cb.onclick=()=>clearPaint();
       row.append(cb); body.appendChild(row);
     }
-    if(g==="Motion"){
-      const row=document.createElement("div"); row.className="driftAll";
-      const on=document.createElement("button"); on.className="btn"; on.textContent="Drift All ~";
-      const off=document.createElement("button"); off.className="btn"; off.textContent="Still All";
-      on.onclick=()=>setAllDrift(true);
-      off.onclick=()=>setAllDrift(false);
-      row.append(on,off); body.appendChild(row);
-    }
     det.append(sum,body); slidersEl.appendChild(det);
   });
 }
@@ -1957,8 +2209,13 @@ const toast=document.getElementById("toast"); let toastT;
 function say(msg){ toast.textContent=msg; toast.classList.add("show"); clearTimeout(toastT); toastT=setTimeout(()=>toast.classList.remove("show"),2600); }
 
 /* -------- actions -------- */
-document.getElementById("bPlay").onclick=function(){ playing=!playing; this.textContent=playing?"Pause":"Play"; };
-document.getElementById("bMusic").onclick=()=>{ music.on ? musicStop() : musicStart(music.deviceId); };
+document.getElementById("bPlay").onclick=function(){ playing=!playing; this.textContent=playing?"\u2759\u2759 Pause":"\u25b7 Play"; };
+document.getElementById("bMusic").onclick=()=>{
+  if(music.on){ musicStop(); return; }
+  musicStart(music.deviceId);
+  showTab("build"); openGroups.Music=true; buildSliders();
+  const d=document.getElementById("grp-Music"); if(d) d.scrollIntoView({block:"start"});
+};
 /* -------- projector: a clean output window for the TV -------- */
 let projWin=null, projStream=null;
 function openProjector(){
