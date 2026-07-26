@@ -460,8 +460,8 @@ vec3 postfx(vec2 uv, vec2 vuv, vec2 px, float t){
     vec3 stT = mix(vec3(0.72,0.88,1.0), spectral(uHue+0.45), 0.3);
     col += stT * starLayer(vuv, t) * uStars * 1.4;
   }
-  col *= 1.0 + uBeat*0.24;                       // the whole frame hits the kick
-  col = mix(vec3(dot(col, vec3(0.299,0.587,0.114))), col, 1.0 + uBeat*0.18 + uAud*0.06);
+  col *= 1.0 + uBeat*0.17;                       // the whole frame hits the kick
+  col = mix(vec3(dot(col, vec3(0.299,0.587,0.114))), col, 1.0 + uBeat*0.12 + uAud*0.05);
   col *= clamp(1.0 - uVignette*dot(vuv,vuv)*0.9, 0.0, 1.0);
   col += (hash(px + mod(t,100.0)) - 0.5) * uGrain * 0.18;   // film grain
   return col;
@@ -1013,7 +1013,7 @@ void main(){
                  dot(pt4.ba, vec2(1.0, 1.0/255.0)))*2.0 - 1.0;
   uv += vec2(pd.x*(uRes.x/uRes.y), pd.y) * 0.65;
   uv /= uZoom;
-  uv /= (1.0 + uBeat*0.05);            // kick punches the camera in
+  uv /= (1.0 + uBeat*0.035);          // kick punches the camera in
   uv += uMouse*0.35;
   float cr = cos(uRot), sr = sin(uRot);        // ROTATE
   uv = mat2(cr,-sr,sr,cr)*uv;
@@ -1168,9 +1168,9 @@ function effective(){
   if(music.on && !music.renderMute){       // THE CONDUCTOR — the song plays the drift
     const A = vals.musicAmt==null?0.7:vals.musicAmt;
     const out = {...vals};
-    const g = music.out;
+    const g = music.cg;                      // slow copies: motion stays liquid
     const T = music.driftT;                  // musical clock: energy sets the tempo
-    const kick = music.phaseKick*Math.min(1,A*1.4);
+    const kick = music.phaseSm*Math.min(1,A*1.4);
     const GBAND = {Space:g.bass, Orb:g.bass, Field:(g.bass+g.mid)*0.5,
                    Light:g.beat, Color:g.mid*0.5+g.harm*0.9, Post:g.treble};
     const SNAP  = {Space:1, Orb:1, Light:1}; // these jump on the kick; Color/Post glide
@@ -1188,9 +1188,9 @@ function effective(){
       out[k] = Math.min(c.max, Math.max(c.min,
         vals[k] + (c.max-c.min)*amp*Math.sin(T*f + ph + (SNAP[c.group]?kick:0))));
     }
-    for(const k in musicRoutes){             // signature accents on top
+    for(const k in musicRoutes){             // signature accents on top (fast signals)
       const c=byKey[k]; if(!c) continue;
-      const sg = g[musicRoutes[k]]||0;
+      const sg = music.out[musicRoutes[k]]||0;
       const dp=(typeof ROUTE_DEPTH!=="undefined"&&ROUTE_DEPTH[k])||0.3;
       out[k]=Math.min(c.max, Math.max(c.min, out[k] + (c.max-c.min)*dp*A*sg));
     }
@@ -1358,7 +1358,8 @@ const music = {
   bins:null, sig:{bass:0,mid:0,treble:0,level:0,beat:0},
   out:{bass:0,mid:0,treble:0,level:0,beat:0,harm:0},   // smoothed — what actually drives sliders
   env:{bass:0,mid:0,treble:0,level:0,harm:0}, beatAvg:0.02, beatPk:0, lastBeat:-9, agc:0.12,
-  driftT:0, phaseKick:0,
+  driftT:0, phaseKick:0, phaseSm:0, tempoSm:0.6,
+  cg:{bass:0,mid:0,treble:0,level:0,beat:0,harm:0},  // slow copies: fluid, never jittery
   lvlAvg:0.02, quietT:0, quietWarned:-99, wasAbove:false, wasLvlAbove:false,
   prevBins:null, fluxAvg:0.004, wasFAbove:false, queue:[], qi:0,
 };
@@ -1556,7 +1557,7 @@ function musicUpdate(dt){
   const onset = fluxOnset || bassOnset;
   if(onset && simTime-music.lastBeat > 0.34){
     music.lastBeat=simTime; music.beatPk=1;
-    music.phaseKick += 0.85;               // motion turns a corner on the kick
+    music.phaseKick += 0.5;                // motion turns a corner on the kick
     if((vals.beatRipples==null?0:vals.beatRipples) > 0.5){
       const rc=canvas.getBoundingClientRect();          // a shockwave lands somewhere new
       const [sx,sy]=toScene(rc.left+(0.12+0.76*Math.random())*rc.width,
@@ -1577,8 +1578,17 @@ function musicUpdate(dt){
     ? music.env.harm + (harmRaw-music.env.harm)*Math.min(1,dt*6)
     : music.env.harm + (harmRaw-music.env.harm)*Math.min(1,dt*1.8);   // long, singing release
   music.sig.harm = Math.min(1, music.env.harm);
-  // the musical clock: all breathing speeds up when the song does
-  music.driftT += dt*(0.35 + music.out.level*2.4);
+  // conductor copies — a second, much slower smoothing stage. The fast
+  // signals stay for accents; these shape continuous motion, so they glide.
+  for(const k in music.out){
+    const t=music.out[k], o=music.cg[k];
+    music.cg[k] = o + (t-o)*Math.min(1, dt*2.2);
+  }
+  // the musical clock: tempo follows the song, but changes over ~2 seconds
+  const tTgt = 0.35 + music.cg.level*1.5;
+  music.tempoSm += (tTgt - music.tempoSm)*Math.min(1, dt*0.8);
+  music.driftT += dt*music.tempoSm;
+  music.phaseSm += (music.phaseKick - music.phaseSm)*Math.min(1, dt*7);  // kicks swerve, not snap
   // smoothed copies drive the sliders — punch stays, jitter dies
   for(const k of ["bass","mid","treble","level","harm"]){
     const t=music.sig[k], o=music.out[k];
@@ -1742,7 +1752,7 @@ function draw(){
   gl.uniform1f(P.locs.uTime, simTime);
   gl.uniform2f(P.locs.uMouse, mouse.x, mouse.y);
   const mA = (music.on && !music.renderMute) ? (vals.musicAmt==null?0.7:vals.musicAmt) : 0;
-  if(P.locs.uBeat) gl.uniform1f(P.locs.uBeat, music.sig.beat*mA);
+  if(P.locs.uBeat) gl.uniform1f(P.locs.uBeat, music.out.beat*mA);
   if(P.locs.uAud)  gl.uniform1f(P.locs.uAud,  music.out.level*mA);
   if(P.locs.uTap) gl.uniform3f(P.locs.uTap, tapState.x, tapState.y, tapState.t);
   if(P.locs.uRipplePts) gl.uniform3fv(P.locs.uRipplePts, rippleArr);
@@ -2082,7 +2092,7 @@ function bakeShaderToy(){
 void mainImage(out vec4 fragColor, in vec2 fragCoord){
   vec2 uv = (fragCoord - 0.5*iResolution.xy)/iResolution.y;
   uv /= uZoom;
-  uv /= (1.0 + uBeat*0.05);            // kick punches the camera in
+  uv /= (1.0 + uBeat*0.035);          // kick punches the camera in
   uv += uMouse*0.35;
   float cr = cos(uRot), sr = sin(uRot);
   uv = mat2(cr,-sr,sr,cr)*uv;
