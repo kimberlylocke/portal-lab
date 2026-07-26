@@ -256,6 +256,7 @@
     <button class="btn rec" id="bRec">Rec Live</button>
     <button class="btn prime" id="bRender">Render Clip</button>
     <button class="btn" id="bCode">The Glass</button>
+    <button class="btn wide" id="bProj">Project \u2922</button>
     <button class="btn prime" id="bPerform">DJ Mode ⛶</button>
     <button class="btn" id="bShare">Share Look</button>
   </div>
@@ -459,6 +460,8 @@ vec3 postfx(vec2 uv, vec2 vuv, vec2 px, float t){
     vec3 stT = mix(vec3(0.72,0.88,1.0), spectral(uHue+0.45), 0.3);
     col += stT * starLayer(vuv, t) * uStars * 1.4;
   }
+  col *= 1.0 + uBeat*0.24;                       // the whole frame hits the kick
+  col = mix(vec3(dot(col, vec3(0.299,0.587,0.114))), col, 1.0 + uBeat*0.18 + uAud*0.06);
   col *= clamp(1.0 - uVignette*dot(vuv,vuv)*0.9, 0.0, 1.0);
   col += (hash(px + mod(t,100.0)) - 0.5) * uGrain * 0.18;   // film grain
   return col;
@@ -996,7 +999,7 @@ const VERT = "attribute vec2 aP; void main(){ gl_Position = vec4(aP,0.0,1.0); }"
 
 function headerFor(keys){
   let u = "precision highp float;\nuniform vec2 uRes; uniform float uTime; uniform vec2 uMouse; uniform vec3 uTap;\n";
-  u += "uniform vec3 uRipplePts[8];\nuniform sampler2D uPaint;\n";
+  u += "uniform vec3 uRipplePts[8];\nuniform sampler2D uPaint;\nuniform float uBeat; uniform float uAud;\n";
   for(const k of keys) u += "uniform float "+byKey[k].u+";\n";
   return u;
 }
@@ -1010,6 +1013,7 @@ void main(){
                  dot(pt4.ba, vec2(1.0, 1.0/255.0)))*2.0 - 1.0;
   uv += vec2(pd.x*(uRes.x/uRes.y), pd.y) * 0.65;
   uv /= uZoom;
+  uv /= (1.0 + uBeat*0.05);            // kick punches the camera in
   uv += uMouse*0.35;
   float cr = cos(uRot), sr = sin(uRot);        // ROTATE
   uv = mat2(cr,-sr,sr,cr)*uv;
@@ -1124,6 +1128,7 @@ function buildProgram(src, keys){
   gl.linkProgram(p);
   if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
   const locs = { uRes:gl.getUniformLocation(p,"uRes"), uTime:gl.getUniformLocation(p,"uTime"), uMouse:gl.getUniformLocation(p,"uMouse"), uTap:gl.getUniformLocation(p,"uTap"),
+    uBeat:gl.getUniformLocation(p,"uBeat"), uAud:gl.getUniformLocation(p,"uAud"),
     uRipplePts:gl.getUniformLocation(p,"uRipplePts[0]"), uPaint:gl.getUniformLocation(p,"uPaint") };
   for(const k of keys) locs[k] = gl.getUniformLocation(p, byKey[k].u);
   return {prog:p, locs, keys, aP:gl.getAttribLocation(p,"aP")};
@@ -1334,7 +1339,7 @@ const music = {
   out:{bass:0,mid:0,treble:0,level:0,beat:0},   // smoothed — what actually drives sliders
   env:{bass:0,mid:0,treble:0,level:0}, beatAvg:0.02, beatPk:0, lastBeat:-9, agc:0.12,
   lvlAvg:0.02, quietT:0, quietWarned:-99, wasAbove:false, wasLvlAbove:false,
-  prevBins:null, fluxAvg:0.004, wasFAbove:false,
+  prevBins:null, fluxAvg:0.004, wasFAbove:false, queue:[], qi:0,
 };
 const musicRoutesByPortal = {};        // your custom wiring, remembered per portal
 let musicRoutes = {};                  // slider key -> signal name
@@ -1419,12 +1424,20 @@ async function musicStartFile(file){    // Phase 2: play a track inside the app
     try{ music.fileNode.disconnect(); }catch(e){}
     music.fileNode.connect(music.analyser);
     music.fileNode.connect(music.ctx.destination);   // you hear it too
+    music.audioEl.loop = music.queue.length < 2;     // sets don't loop one song
+    music.audioEl.onended = ()=>{
+      if(music.queue.length > 1){
+        music.qi = (music.qi + 1) % music.queue.length;
+        musicStartFile(music.queue[music.qi]);
+      }
+    };
     music.audioEl.src = URL.createObjectURL(file);
     await music.audioEl.play();
     music.on = true;
     if(!Object.keys(musicRoutes).length) autoRoute();
     setMusicUI(true);
-    say("Playing "+file.name+" \u266a \u2014 perfect signal, no banners");
+    const pos = music.queue.length > 1 ? (music.qi+1)+"/"+music.queue.length+" \u00b7 " : "";
+    say("Playing "+pos+file.name+" \u266a");
   }catch(err){ say("Couldn\u2019t play that file \u2014 try an MP3, M4A or WAV"); }
 }
 async function musicStartTab(){           // capture a Chrome tab's sound directly
@@ -1692,6 +1705,9 @@ function draw(){
   gl.uniform2f(P.locs.uRes, canvas.width, canvas.height);
   gl.uniform1f(P.locs.uTime, simTime);
   gl.uniform2f(P.locs.uMouse, mouse.x, mouse.y);
+  const mA = (music.on && !music.renderMute) ? (vals.musicAmt==null?0.7:vals.musicAmt) : 0;
+  if(P.locs.uBeat) gl.uniform1f(P.locs.uBeat, music.sig.beat*mA);
+  if(P.locs.uAud)  gl.uniform1f(P.locs.uAud,  music.out.level*mA);
   if(P.locs.uTap) gl.uniform3f(P.locs.uTap, tapState.x, tapState.y, tapState.t);
   if(P.locs.uRipplePts) gl.uniform3fv(P.locs.uRipplePts, rippleArr);
   if(P.locs.uPaint && paintTexA){
@@ -1774,8 +1790,9 @@ function buildSliders(){
       head.innerHTML='<div class="meters" id="musMeters"><i></i><i></i><i></i><i></i></div>'
         +'<div class="mrow"><select id="musIn" class="msel"><option value="">Default microphone</option></select></div>'
         +'<div class="mrow"><button class="btn" id="bTabAud" title="Capture a Chrome tab\u2019s audio \u2014 play Spotify at open.spotify.com in a tab">Tab \u266a</button>'
-        +'<button class="btn" id="bMusFile" title="Play an audio file inside the app \u2014 the cleanest signal, no banners">Play a File</button>'
-        +'<input id="musFileIn" type="file" accept="audio/*" style="display:none"></div>'
+        +'<button class="btn" id="bMusFile" title="Play audio files inside the app \u2014 pick several for a set">Play Files</button>'
+        +'<button class="btn" id="bMusNext" title="Next track in the set">Next \u25b8</button>'
+        +'<input id="musFileIn" type="file" accept="audio/*" multiple style="display:none"></div>'
         +'<div class="mrow"><button class="btn" id="bAutoRoute">Auto-Route</button>'
         +'<button class="btn" id="bRouting">Routing</button></div>';
       body.appendChild(head);
@@ -1783,7 +1800,16 @@ function buildSliders(){
       head.querySelector("#bTabAud").onclick=()=>musicStartTab();
       const fIn=head.querySelector("#musFileIn");
       head.querySelector("#bMusFile").onclick=()=>fIn.click();
-      fIn.onchange=()=>{ if(fIn.files[0]) musicStartFile(fIn.files[0]); };
+      fIn.onchange=()=>{
+        const fs=[...fIn.files]; if(!fs.length) return;
+        music.queue = fs; music.qi = 0; musicStartFile(fs[0]);
+      };
+      head.querySelector("#bMusNext").onclick=()=>{
+        if(music.queue.length > 1){
+          music.qi = (music.qi + 1) % music.queue.length;
+          musicStartFile(music.queue[music.qi]);
+        } else say("Pick several files to make a set");
+      };
       const rb=head.querySelector("#bRouting");
       rb.classList.toggle("on", musicRoutingUI);
       rb.onclick=()=>{ musicRoutingUI=!musicRoutingUI; buildSliders(); };
@@ -1887,6 +1913,22 @@ function say(msg){ toast.textContent=msg; toast.classList.add("show"); clearTime
 /* -------- actions -------- */
 document.getElementById("bPlay").onclick=function(){ playing=!playing; this.textContent=playing?"Pause":"Play"; };
 document.getElementById("bMusic").onclick=()=>{ music.on ? musicStop() : musicStart(music.deviceId); };
+/* -------- projector: a clean output window for the TV -------- */
+let projWin=null, projStream=null;
+function openProjector(){
+  if(projWin && !projWin.closed){ projWin.focus(); return; }
+  projStream = projStream || canvas.captureStream(60);
+  projWin = window.open("", "tripout_proj", "width=960,height=540");
+  if(!projWin){ say("Popup blocked \u2014 allow popups for this site"); return; }
+  const d = projWin.document;
+  d.write('<!doctype html><title>Trip Out \u2014 Output</title><style>html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}video{width:100%;height:100%;object-fit:contain}#f{position:fixed;right:14px;bottom:14px;font:12px monospace;color:#888;background:#111;border:1px solid #333;padding:9px 14px;cursor:pointer}</style><video autoplay muted playsinline></video><button id="f">Fullscreen</button>');
+  d.close();
+  const v = d.querySelector("video"); v.srcObject = projStream;
+  const fb = d.getElementById("f");
+  fb.onclick = ()=>{ if(d.documentElement.requestFullscreen) d.documentElement.requestFullscreen(); fb.style.display="none"; };
+  say("Output window open \u2014 drag it to the screen, hit Fullscreen");
+}
+document.getElementById("bProj").onclick = openProjector;
 document.getElementById("pfMusic").onclick=()=>{ music.on ? musicStop() : musicStart(music.deviceId); };
 document.getElementById("bRand").onclick=()=>{
   const r=(a,b)=>a+Math.random()*(b-a);
@@ -1990,11 +2032,12 @@ function bakeShaderToy(){
   const e=effective();
   let h="// Trip Out — \""+cur.name+"\"\n// Your exact settings, baked in. Paste into shadertoy.com → New.\n\n";
   for(const k of keys) h+="const float "+byKey[k].u+" = "+(+(e[k]!==undefined?e[k]:byKey[k].min)).toFixed(3)+";\n";
-  h+="const vec2 uMouse = vec2(0.0);\nconst vec3 uTap = vec3(0.0);\n#define uTime iTime\n";
+  h+="const vec2 uMouse = vec2(0.0);\nconst vec3 uTap = vec3(0.0);\nconst float uBeat = 0.0; const float uAud = 0.0;\n#define uTime iTime\n";
   const main=`
 void mainImage(out vec4 fragColor, in vec2 fragCoord){
   vec2 uv = (fragCoord - 0.5*iResolution.xy)/iResolution.y;
   uv /= uZoom;
+  uv /= (1.0 + uBeat*0.05);            // kick punches the camera in
   uv += uMouse*0.35;
   float cr = cos(uRot), sr = sin(uRot);
   uv = mat2(cr,-sr,sr,cr)*uv;
