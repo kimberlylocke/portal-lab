@@ -1166,7 +1166,7 @@ function effective(){
     for(const k in musicRoutes){
       const c=byKey[k]; if(!c) continue;
       const sg = music.out[musicRoutes[k]]||0;
-      out[k]=Math.min(c.max, Math.max(c.min, vals[k] + (c.max-c.min)*0.2*A*sg));
+      out[k]=Math.min(c.max, Math.max(c.min, vals[k] + (c.max-c.min)*0.3*A*sg));
     }
     return out;
   }
@@ -1359,6 +1359,22 @@ function autoRoute(){                  // sensible wiring per portal, one tap
   Object.assign(base, per[cur.id]||{});
   for(const k in base) if(routeEligible(k)) musicRoutes[k]=base[k];
 }
+function musicAttach(st, msg){
+  if(music.stream) music.stream.getTracks().forEach(t=>t.stop());
+  if(music.src) music.src.disconnect();
+  music.stream = st;
+  music.src = music.ctx.createMediaStreamSource(st);
+  if(!music.analyser){
+    music.analyser = music.ctx.createAnalyser();
+    music.analyser.fftSize = 2048;
+    music.analyser.smoothingTimeConstant = 0.35;
+    music.bins = new Uint8Array(music.analyser.frequencyBinCount);
+  }
+  music.src.connect(music.analyser);
+  music.on = true;
+  if(!Object.keys(musicRoutes).length) autoRoute();
+  setMusicUI(true); say(msg);
+}
 async function musicStart(devId){
   try{
     music.ctx = music.ctx || new (window.AudioContext||window.webkitAudioContext)();
@@ -1366,25 +1382,27 @@ async function musicStart(devId){
     const opts = {echoCancellation:false, noiseSuppression:false, autoGainControl:false};
     if(devId) opts.deviceId = {exact:devId};
     const st = await navigator.mediaDevices.getUserMedia({audio:opts});
-    if(music.stream) music.stream.getTracks().forEach(t=>t.stop());
-    if(music.src) music.src.disconnect();
-    music.stream = st;
-    music.src = music.ctx.createMediaStreamSource(st);
-    if(!music.analyser){
-      music.analyser = music.ctx.createAnalyser();
-      music.analyser.fftSize = 2048;
-      music.analyser.smoothingTimeConstant = 0.35;
-      music.bins = new Uint8Array(music.analyser.frequencyBinCount);
-    }
-    music.src.connect(music.analyser);
-    music.on = true;
-    if(!Object.keys(musicRoutes).length) autoRoute();
-    setMusicUI(true); listInputs();
-    say("Listening \u266a \u2014 Drift is paused while Music is on");
+    musicAttach(st, "Listening \u266a \u2014 Drift is paused while Music is on");
+    listInputs();
   }catch(err){
     music.on = false; setMusicUI(false);
     say("Mic blocked \u2014 allow microphone access and try again");
   }
+}
+async function musicStartTab(){           // capture a Chrome tab's sound directly
+  try{
+    music.ctx = music.ctx || new (window.AudioContext||window.webkitAudioContext)();
+    await music.ctx.resume();
+    const st = await navigator.mediaDevices.getDisplayMedia({video:true, audio:true});
+    st.getVideoTracks().forEach(t=>t.stop());          // we only want the sound
+    if(!st.getAudioTracks().length){
+      st.getTracks().forEach(t=>t.stop());
+      say('No audio shared \u2014 pick a Chrome TAB and tick \u201cAlso share tab audio\u201d');
+      return;
+    }
+    st.getAudioTracks()[0].onended = ()=>musicStop();
+    musicAttach(st, "Listening to tab audio \u266a \u2014 a perfect signal");
+  }catch(err){ say("Tab share cancelled"); }
 }
 function musicStop(){
   if(music.stream) music.stream.getTracks().forEach(t=>t.stop());
@@ -1692,11 +1710,13 @@ function buildSliders(){
     if(g==="Music"){
       const head=document.createElement("div"); head.className="musHead";
       head.innerHTML='<div class="meters" id="musMeters"><i></i><i></i><i></i><i></i></div>'
-        +'<div class="mrow"><select id="musIn" class="msel"><option value="">Default microphone</option></select></div>'
+        +'<div class="mrow"><select id="musIn" class="msel"><option value="">Default microphone</option></select>'
+        +'<button class="btn" id="bTabAud" title="Capture a Chrome tab\u2019s audio \u2014 play Spotify at open.spotify.com in a tab">Tab \u266a</button></div>'
         +'<div class="mrow"><button class="btn" id="bAutoRoute">Auto-Route</button>'
         +'<button class="btn" id="bRouting">Routing</button></div>';
       body.appendChild(head);
       head.querySelector("#bAutoRoute").onclick=()=>{ autoRoute(); buildSliders(); say("Routed for "+cur.name); };
+      head.querySelector("#bTabAud").onclick=()=>musicStartTab();
       const rb=head.querySelector("#bRouting");
       rb.classList.toggle("on", musicRoutingUI);
       rb.onclick=()=>{ musicRoutingUI=!musicRoutingUI; buildSliders(); };
