@@ -581,7 +581,7 @@ const LESSONS = {
 };
 
 /* -------- shared defaults -------- */
-const D0 = {musicAmt:.7,musicSens:1,beatRipples:1,orb:0,orbSpin:.3,orbHard:.7,orbCount:1,bounce:0,streak:0,stars:0,brushSize:.16,smearStr:1.2,persist:1,pspread:.12,pflow:.1,speed:1,zoom:1,symmetry:1,warp:1,flow:1,spectrum:1,hue:0,sat:1.1,glow:.6,chroma:.8,sparkle:0,grain:.28,vignette:.5,driftSpd:3,driftAmt:.5,
+const D0 = {musicAmt:.7,musicSens:1,beatRipples:0,orb:0,orbSpin:.3,orbHard:.7,orbCount:1,bounce:0,streak:0,stars:0,brushSize:.16,smearStr:1.2,persist:1,pspread:.12,pflow:.1,speed:1,zoom:1,symmetry:1,warp:1,flow:1,spectrum:1,hue:0,sat:1.1,glow:.6,chroma:.8,sparkle:0,grain:.28,vignette:.5,driftSpd:3,driftAmt:.5,
             core:0,coreSize:.4,ring:0,ringPos:.45,ringWidth:.4,horizon:0,horizonY:0,
             tube:0,fibers:0,bgHue:.6,bgLight:0,rot:0,twist:0,mirx:0,miry:0};
 
@@ -1371,17 +1371,20 @@ function autoRoute(){                  // this portal's signature wiring, one ta
     {warp:"bass", flow:"mid", sparkle:"treble", glow:"beat"};
   for(const k in base) if(routeEligible(k)) musicRoutes[k]=base[k];
 }
+function ensureAnalyser(){
+  if(music.analyser) return;
+  music.analyser = music.ctx.createAnalyser();
+  music.analyser.fftSize = 2048;
+  music.analyser.smoothingTimeConstant = 0.22;
+  music.bins = new Uint8Array(music.analyser.frequencyBinCount);
+}
 function musicAttach(st, msg){
   if(music.stream) music.stream.getTracks().forEach(t=>t.stop());
   if(music.src) music.src.disconnect();
+  if(music.audioEl) music.audioEl.pause();
   music.stream = st;
   music.src = music.ctx.createMediaStreamSource(st);
-  if(!music.analyser){
-    music.analyser = music.ctx.createAnalyser();
-    music.analyser.fftSize = 2048;
-    music.analyser.smoothingTimeConstant = 0.22;
-    music.bins = new Uint8Array(music.analyser.frequencyBinCount);
-  }
+  ensureAnalyser();
   music.src.connect(music.analyser);
   music.on = true;
   if(!Object.keys(musicRoutes).length) autoRoute();
@@ -1401,6 +1404,29 @@ async function musicStart(devId){
     say("Mic blocked \u2014 allow microphone access and try again");
   }
 }
+async function musicStartFile(file){    // Phase 2: play a track inside the app
+  try{
+    music.ctx = music.ctx || new (window.AudioContext||window.webkitAudioContext)();
+    await music.ctx.resume();
+    if(!music.audioEl){
+      music.audioEl = new Audio();
+      music.audioEl.loop = true;
+      music.fileNode = music.ctx.createMediaElementSource(music.audioEl);
+    }
+    if(music.stream){ music.stream.getTracks().forEach(t=>t.stop()); music.stream=null; }
+    if(music.src){ music.src.disconnect(); music.src=null; }
+    ensureAnalyser();
+    try{ music.fileNode.disconnect(); }catch(e){}
+    music.fileNode.connect(music.analyser);
+    music.fileNode.connect(music.ctx.destination);   // you hear it too
+    music.audioEl.src = URL.createObjectURL(file);
+    await music.audioEl.play();
+    music.on = true;
+    if(!Object.keys(musicRoutes).length) autoRoute();
+    setMusicUI(true);
+    say("Playing "+file.name+" \u266a \u2014 perfect signal, no banners");
+  }catch(err){ say("Couldn\u2019t play that file \u2014 try an MP3, M4A or WAV"); }
+}
 async function musicStartTab(){           // capture a Chrome tab's sound directly
   try{
     music.ctx = music.ctx || new (window.AudioContext||window.webkitAudioContext)();
@@ -1418,6 +1444,7 @@ async function musicStartTab(){           // capture a Chrome tab's sound direct
 }
 function musicStop(){
   if(music.stream) music.stream.getTracks().forEach(t=>t.stop());
+  if(music.audioEl) music.audioEl.pause();
   music.on = false; setMusicUI(false);
   const g = music.sig; g.bass=g.mid=g.treble=g.level=g.beat=0;
   say("Music off");
@@ -1495,7 +1522,7 @@ function musicUpdate(dt){
   const onset = fluxOnset || bassOnset;
   if(onset && simTime-music.lastBeat > 0.34){
     music.lastBeat=simTime; music.beatPk=1;
-    if((vals.beatRipples==null?1:vals.beatRipples) > 0.5){
+    if((vals.beatRipples==null?0:vals.beatRipples) > 0.5){
       const rc=canvas.getBoundingClientRect();          // a shockwave lands somewhere new
       const [sx,sy]=toScene(rc.left+(0.12+0.76*Math.random())*rc.width,
                             rc.top +(0.12+0.76*Math.random())*rc.height);
@@ -1745,13 +1772,18 @@ function buildSliders(){
     if(g==="Music"){
       const head=document.createElement("div"); head.className="musHead";
       head.innerHTML='<div class="meters" id="musMeters"><i></i><i></i><i></i><i></i></div>'
-        +'<div class="mrow"><select id="musIn" class="msel"><option value="">Default microphone</option></select>'
-        +'<button class="btn" id="bTabAud" title="Capture a Chrome tab\u2019s audio \u2014 play Spotify at open.spotify.com in a tab">Tab \u266a</button></div>'
+        +'<div class="mrow"><select id="musIn" class="msel"><option value="">Default microphone</option></select></div>'
+        +'<div class="mrow"><button class="btn" id="bTabAud" title="Capture a Chrome tab\u2019s audio \u2014 play Spotify at open.spotify.com in a tab">Tab \u266a</button>'
+        +'<button class="btn" id="bMusFile" title="Play an audio file inside the app \u2014 the cleanest signal, no banners">Play a File</button>'
+        +'<input id="musFileIn" type="file" accept="audio/*" style="display:none"></div>'
         +'<div class="mrow"><button class="btn" id="bAutoRoute">Auto-Route</button>'
         +'<button class="btn" id="bRouting">Routing</button></div>';
       body.appendChild(head);
       head.querySelector("#bAutoRoute").onclick=()=>{ autoRoute(); buildSliders(); say("Routed for "+cur.name); };
       head.querySelector("#bTabAud").onclick=()=>musicStartTab();
+      const fIn=head.querySelector("#musFileIn");
+      head.querySelector("#bMusFile").onclick=()=>fIn.click();
+      fIn.onchange=()=>{ if(fIn.files[0]) musicStartFile(fIn.files[0]); };
       const rb=head.querySelector("#bRouting");
       rb.classList.toggle("on", musicRoutingUI);
       rb.onclick=()=>{ musicRoutingUI=!musicRoutingUI; buildSliders(); };
