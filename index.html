@@ -256,7 +256,7 @@
     <button class="btn rec" id="bRec">Rec Live</button>
     <button class="btn prime" id="bRender">Render Clip</button>
     <button class="btn" id="bCode">The Glass</button>
-    <button class="btn wide" id="bProj">Project \u2922</button>
+    <button class="btn wide" id="bProj">Project ⛶</button>
     <button class="btn prime" id="bPerform">DJ Mode ⛶</button>
     <button class="btn" id="bShare">Share Look</button>
   </div>
@@ -550,7 +550,7 @@ const LESSONS = {
     code:"if(uMirX > 0.5) p.x = abs(p.x);   // mirror = absolute value\nfloat ang = atan(p.y,p.x) + uTwist*r;  // twist = angle grows with radius"
   },
   Music: {
-    text:"Music mode listens with a Fourier transform \u2014 math from 1965, zero AI. Each frame the sound splits into bands: Bass (the kick), Mid (voices, synths), Treble (hats, air), plus a Beat pulse that fires when the low end jumps above its own recent average \u2014 an onset detector, not a model. Auto-gain keeps a whisper and a club PA in the same range, and beats are capped at three per second (a photosensitivity guard venues expect). Amount is the master depth. Auto-Route wires sensible moves for this portal; open Routing to wire any slider yourself \u2014 B, M, T or \u2665 for beat. While Music is on, Drift politely waits.",
+    text:"Music mode listens with a Fourier transform \u2014 math from 1965, zero AI. Each frame the sound splits into bands: Bass (the kick), Mid (voices, synths), Treble (hats, air), plus a Beat pulse that fires when the low end jumps above its own recent average \u2014 an onset detector, not a model. Auto-gain keeps a whisper and a club PA in the same range, and beats are capped at three per second (a photosensitivity guard venues expect). Amount is the master depth. Auto-Route wires sensible moves for this portal; open Routing to wire any slider yourself \u2014 B, M, T or \u2665 for beat. While Music is on, the drift engine itself becomes the orchestra: the song\u2019s energy sets the tempo of every breath, kicks snap Space and Light forward while Color and Post glide, and stacked harmonies (the H meter) make the color sing.",
     code:"bins = FFT(microphone)         // sound -> frequencies\nbass = avg(bins[25..150 Hz])\nbeat: bass > 1.45 * rollingAvg // an onset, not AI"
   },
   Orb: {
@@ -1165,14 +1165,34 @@ function keyPhase(k){  // stable per-control phase so drifts don't sync up
   return h/997*6.283;
 }
 function effective(){
-  if(music.on && !music.renderMute){       // Music takes the wheel; Drift waits
+  if(music.on && !music.renderMute){       // THE CONDUCTOR — the song plays the drift
     const A = vals.musicAmt==null?0.7:vals.musicAmt;
     const out = {...vals};
-    for(const k in musicRoutes){
+    const g = music.out;
+    const T = music.driftT;                  // musical clock: energy sets the tempo
+    const kick = music.phaseKick*Math.min(1,A*1.4);
+    const GBAND = {Space:g.bass, Orb:g.bass, Field:(g.bass+g.mid)*0.5,
+                   Light:g.beat, Color:g.mid*0.5+g.harm*0.9, Post:g.treble};
+    const SNAP  = {Space:1, Orb:1, Light:1}; // these jump on the kick; Color/Post glide
+    for(const k of uiKeysForMode(cur.mode)){
+      if(!routeEligible(k)) continue;
+      const c = byKey[k];
+      if(k==="hue"){                         // harmonies bend the color wheel
+        out.hue = ((vals.hue + T*0.004 + g.harm*0.06*A) % 1 + 1) % 1;
+        continue;
+      }
+      const ph = keyPhase(k);
+      const f  = 0.05 + (ph/6.283)*0.05;
+      const band = GBAND[c.group]!==undefined ? GBAND[c.group] : g.level;
+      const amp = 0.12*A*(0.45 + band*1.1);  // each breath swells with its band
+      out[k] = Math.min(c.max, Math.max(c.min,
+        vals[k] + (c.max-c.min)*amp*Math.sin(T*f + ph + (SNAP[c.group]?kick:0))));
+    }
+    for(const k in musicRoutes){             // signature accents on top
       const c=byKey[k]; if(!c) continue;
-      const sg = music.out[musicRoutes[k]]||0;
+      const sg = g[musicRoutes[k]]||0;
       const dp=(typeof ROUTE_DEPTH!=="undefined"&&ROUTE_DEPTH[k])||0.3;
-      out[k]=Math.min(c.max, Math.max(c.min, vals[k] + (c.max-c.min)*dp*A*sg));
+      out[k]=Math.min(c.max, Math.max(c.min, out[k] + (c.max-c.min)*dp*A*sg));
     }
     return out;
   }
@@ -1336,16 +1356,17 @@ function addRipple(x,y){
 const music = {
   on:false, ctx:null, analyser:null, src:null, stream:null, deviceId:"", renderMute:false,
   bins:null, sig:{bass:0,mid:0,treble:0,level:0,beat:0},
-  out:{bass:0,mid:0,treble:0,level:0,beat:0},   // smoothed — what actually drives sliders
-  env:{bass:0,mid:0,treble:0,level:0}, beatAvg:0.02, beatPk:0, lastBeat:-9, agc:0.12,
+  out:{bass:0,mid:0,treble:0,level:0,beat:0,harm:0},   // smoothed — what actually drives sliders
+  env:{bass:0,mid:0,treble:0,level:0,harm:0}, beatAvg:0.02, beatPk:0, lastBeat:-9, agc:0.12,
+  driftT:0, phaseKick:0,
   lvlAvg:0.02, quietT:0, quietWarned:-99, wasAbove:false, wasLvlAbove:false,
   prevBins:null, fluxAvg:0.004, wasFAbove:false, queue:[], qi:0,
 };
 const musicRoutesByPortal = {};        // your custom wiring, remembered per portal
 let musicRoutes = {};                  // slider key -> signal name
 let musicRoutingUI = false;
-const ROUTE_SIGS = ["","bass","mid","treble","beat"];
-const SIG_ABBR = {bass:"B", mid:"M", treble:"T", beat:"\u2665"};
+const ROUTE_SIGS = ["","bass","mid","treble","harm","beat"];
+const SIG_ABBR = {bass:"B", mid:"M", treble:"T", harm:"H", beat:"\u2665"};
 function routeEligible(k){
   const c = byKey[k];
   return c && !c.jsOnly && !c.toggle && c.step < 1 && k !== "speed";
@@ -1357,18 +1378,18 @@ const ROUTE_DEPTH = {                  // how far music pushes each slider
 const PORTAL_ROUTES = {                // each portal's signature moves
   free:      {warp:"bass", sparkle:"treble", core:"beat",  contrast:"mid"},
   iris:      {glow:"beat", warp:"bass",  sparkle:"treble", spectrum:"mid"},
-  cathedral: {glow:"beat", warp:"bass",  fibers:"mid",     sparkle:"treble"},
+  cathedral: {glow:"beat", warp:"bass",  fibers:"harm",    sparkle:"treble"},
   geode:     {glow:"beat", warp:"bass",  chroma:"treble",  flow:"mid"},
   moth:      {glow:"beat", warp:"bass",  flow:"mid",       sparkle:"treble"},
   veil:      {glow:"beat", flow:"bass",  warp:"mid",       stars:"treble"},
-  supernova: {glow:"beat", warp:"bass",  spectrum:"mid",   sparkle:"treble"},
+  supernova: {glow:"beat", warp:"bass",  spectrum:"harm",  sparkle:"treble"},
   nebula:    {glow:"beat", flow:"bass",  warp:"mid",       sparkle:"treble"},
   clouds:    {glow:"beat", warp:"bass",  spectrum:"mid",   stars:"treble"},
   galaxy:    {zoom:"beat", warp:"bass",  spectrum:"mid",   sparkle:"treble"},
   pool:      {zoom:"beat", warp:"bass",  flow:"mid",       sparkle:"treble"},
   metal:     {glow:"beat", warp:"bass",  sat:"mid",        sparkle:"treble"},
   grain:     {warp:"beat", flow:"bass",  sat:"mid",        spectrum:"treble"},
-  silk:      {glow:"beat", flow:"bass",  fibers:"mid",     sparkle:"treble"},
+  silk:      {glow:"beat", flow:"bass",  fibers:"harm",    sparkle:"treble"},
 };
 function autoRoute(){                  // this portal's signature wiring, one tap
   musicRoutes = {};
@@ -1535,6 +1556,7 @@ function musicUpdate(dt){
   const onset = fluxOnset || bassOnset;
   if(onset && simTime-music.lastBeat > 0.34){
     music.lastBeat=simTime; music.beatPk=1;
+    music.phaseKick += 0.85;               // motion turns a corner on the kick
     if((vals.beatRipples==null?0:vals.beatRipples) > 0.5){
       const rc=canvas.getBoundingClientRect();          // a shockwave lands somewhere new
       const [sx,sy]=toScene(rc.left+(0.12+0.76*Math.random())*rc.width,
@@ -1544,16 +1566,30 @@ function musicUpdate(dt){
   }
   music.beatPk *= Math.pow(0.5, dt/0.16);              // punchy but round
   music.sig.beat = music.beatPk;
+  // HARMONY — how FULL the mid spectrum is: voices, pads, stacked chords.
+  // Occupancy (how many mid bins are lit), not loudness, is what choirs have.
+  let occ = 0;
+  const hLo = Math.floor(250/nyq2*nb), hHi = Math.min(nb-1, Math.floor(3200/nyq2*nb));
+  const thr = 30 + 170*music.agc;
+  for(let i=hLo; i<=hHi; i++) if(music.bins[i] > thr) occ++;
+  const harmRaw = (occ/(hHi-hLo+1)) * Math.min(1, raw.mid/Math.max(music.agc,0.05)*1.3);
+  music.env.harm = harmRaw > music.env.harm
+    ? music.env.harm + (harmRaw-music.env.harm)*Math.min(1,dt*6)
+    : music.env.harm + (harmRaw-music.env.harm)*Math.min(1,dt*1.8);   // long, singing release
+  music.sig.harm = Math.min(1, music.env.harm);
+  // the musical clock: all breathing speeds up when the song does
+  music.driftT += dt*(0.35 + music.out.level*2.4);
   // smoothed copies drive the sliders — punch stays, jitter dies
-  for(const k of ["bass","mid","treble","level"]){
+  for(const k of ["bass","mid","treble","level","harm"]){
     const t=music.sig[k], o=music.out[k];
     music.out[k] = t>o ? o+(t-o)*Math.min(1,dt*16) : o+(t-o)*Math.min(1,dt*5.5);
   }
   music.out.beat = Math.max(music.out.beat*Math.pow(0.5, dt/0.22), music.sig.beat);
   const mm=document.getElementById("musMeters");        // live meters
   if(mm){
-    const v=[music.sig.bass,music.sig.mid,music.sig.treble,music.sig.beat];
-    for(let i=0;i<4;i++) mm.children[i].style.height=(2+13*Math.min(1,v[i]))+"px";
+    const v=[music.sig.bass,music.sig.mid,music.sig.treble,music.sig.harm,music.sig.beat];
+    const nB=Math.min(mm.children.length, v.length);
+    for(let i=0;i<nB;i++) mm.children[i].style.height=(2+13*Math.min(1,v[i]))+"px";
   }
 }
 
@@ -1721,7 +1757,7 @@ function draw(){
   }
   gl.drawArrays(gl.TRIANGLES,0,3);
 }
-function frame(now){
+function tick(now){
   const dt = Math.min((now-last)/1000, .1); last = now;
   if(!rendering){
     fitCanvas();
@@ -1737,8 +1773,8 @@ function frame(now){
     }
     try{ draw(); }catch(err){ /* surfaced via Glass */ }
   }
-  requestAnimationFrame(frame);
 }
+function frame(now){ tick(now); requestAnimationFrame(frame); }
 initPaint();
 requestAnimationFrame(frame);
 
@@ -1787,7 +1823,7 @@ function buildSliders(){
 
     if(g==="Music"){
       const head=document.createElement("div"); head.className="musHead";
-      head.innerHTML='<div class="meters" id="musMeters"><i></i><i></i><i></i><i></i></div>'
+      head.innerHTML='<div class="meters" id="musMeters"><i></i><i></i><i></i><i></i><i></i></div>'
         +'<div class="mrow"><select id="musIn" class="msel"><option value="">Default microphone</option></select></div>'
         +'<div class="mrow"><button class="btn" id="bTabAud" title="Capture a Chrome tab\u2019s audio \u2014 play Spotify at open.spotify.com in a tab">Tab \u266a</button>'
         +'<button class="btn" id="bMusFile" title="Play audio files inside the app \u2014 pick several for a set">Play Files</button>'
@@ -1921,14 +1957,23 @@ function openProjector(){
   projWin = window.open("", "tripout_proj", "width=960,height=540");
   if(!projWin){ say("Popup blocked \u2014 allow popups for this site"); return; }
   const d = projWin.document;
-  d.write('<!doctype html><title>Trip Out \u2014 Output</title><style>html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}video{width:100%;height:100%;object-fit:contain}#f{position:fixed;right:14px;bottom:14px;font:12px monospace;color:#888;background:#111;border:1px solid #333;padding:9px 14px;cursor:pointer}</style><video autoplay muted playsinline></video><button id="f">Fullscreen</button>');
+  d.write('<!doctype html><title>Trip Out \u2014 Output</title><style>html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}video{width:100%;height:100%;object-fit:cover}body.fit video{object-fit:contain}#b{position:fixed;right:14px;bottom:14px;display:flex;gap:8px}#b button{font:12px monospace;color:#888;background:#111;border:1px solid #333;padding:9px 14px;cursor:pointer}</style><video autoplay muted playsinline></video><div id="b"><button id="m">Fit</button><button id="f">Fullscreen</button></div>');
   d.close();
   const v = d.querySelector("video"); v.srcObject = projStream;
   const fb = d.getElementById("f");
   fb.onclick = ()=>{ if(d.documentElement.requestFullscreen) d.documentElement.requestFullscreen(); fb.style.display="none"; };
+  const mb = d.getElementById("m");
+  mb.onclick = ()=>{ const fit=d.body.classList.toggle("fit"); mb.textContent=fit?"Fill":"Fit"; };
   say("Output window open \u2014 drag it to the screen, hit Fullscreen");
 }
 document.getElementById("bProj").onclick = openProjector;
+let hiddenClock = null;                    // keeps the output alive when this
+document.addEventListener("visibilitychange", ()=>{   // window is fully covered
+  const need = (projWin && !projWin.closed) || music.on;
+  if(document.hidden && need){
+    if(!hiddenClock) hiddenClock = setInterval(()=>tick(performance.now()), 33);
+  } else if(hiddenClock){ clearInterval(hiddenClock); hiddenClock = null; }
+});
 document.getElementById("pfMusic").onclick=()=>{ music.on ? musicStop() : musicStart(music.deviceId); };
 document.getElementById("bRand").onclick=()=>{
   const r=(a,b)=>a+Math.random()*(b-a);
