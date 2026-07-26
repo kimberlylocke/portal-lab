@@ -1165,7 +1165,7 @@ function effective(){
     const out = {...vals};
     for(const k in musicRoutes){
       const c=byKey[k]; if(!c) continue;
-      const sg = music.sig[musicRoutes[k]]||0;
+      const sg = music.out[musicRoutes[k]]||0;
       out[k]=Math.min(c.max, Math.max(c.min, vals[k] + (c.max-c.min)*0.2*A*sg));
     }
     return out;
@@ -1330,7 +1330,9 @@ function addRipple(x,y){
 const music = {
   on:false, ctx:null, analyser:null, src:null, stream:null, deviceId:"", renderMute:false,
   bins:null, sig:{bass:0,mid:0,treble:0,level:0,beat:0},
+  out:{bass:0,mid:0,treble:0,level:0,beat:0},   // smoothed — what actually drives sliders
   env:{bass:0,mid:0,treble:0,level:0}, beatAvg:0.02, beatPk:0, lastBeat:-9, agc:0.12,
+  lvlAvg:0.02, quietT:0, quietWarned:-99,
 };
 let musicRoutes = {};                  // slider key -> signal name
 let musicRoutingUI = false;
@@ -1371,7 +1373,7 @@ async function musicStart(devId){
     if(!music.analyser){
       music.analyser = music.ctx.createAnalyser();
       music.analyser.fftSize = 2048;
-      music.analyser.smoothingTimeConstant = 0.5;
+      music.analyser.smoothingTimeConstant = 0.35;
       music.bins = new Uint8Array(music.analyser.frequencyBinCount);
     }
     music.src.connect(music.analyser);
@@ -1419,7 +1421,7 @@ function bandAvg(lo,hi){               // Hz range -> average bin energy 0..1
 function musicUpdate(dt){
   if(!music.on || !music.analyser) return;
   music.analyser.getByteFrequencyData(music.bins);
-  const raw={bass:bandAvg(25,150), mid:bandAvg(400,2200), treble:bandAvg(4000,12000), level:bandAvg(25,12000)};
+  const raw={bass:bandAvg(30,220), mid:bandAvg(400,2200), treble:bandAvg(4000,12000), level:bandAvg(30,12000)};
   // auto-gain: normalize to the loudest thing heard lately (~8s half-life)
   music.agc = Math.max(music.agc*Math.pow(0.5, dt/8), raw.level, 0.05);
   const sens = vals.musicSens==null?1:vals.musicSens;
@@ -1430,9 +1432,18 @@ function musicUpdate(dt){
                        : e+(v-e)*Math.min(1,dt*4.5);   // slow release: decay musically
     music.sig[k]=Math.min(1,music.env[k]);
   }
-  // beat: bass onset above its rolling average — strobe-guarded to ~3/s
+  // beat: bass onset OR broadband jump (phone speakers carry the kick in
+  // its harmonics, not the sub) — strobe-guarded to ~3/s
   music.beatAvg += (raw.bass-music.beatAvg)*Math.min(1,dt*1.6);
-  if(raw.bass > music.beatAvg*1.45+0.03 && simTime-music.lastBeat > 0.34){
+  music.lvlAvg  += (raw.level-music.lvlAvg)*Math.min(1,dt*1.2);
+  if(raw.level < 0.015){ music.quietT += dt; } else { music.quietT = 0; }
+  if(music.quietT > 4 && simTime-music.quietWarned > 20){
+    music.quietWarned = simTime;
+    say("Barely hearing anything \u2014 turn it up or move closer");
+  }
+  const onset = (raw.bass > music.beatAvg*1.42+0.025) ||
+                (raw.level > music.lvlAvg*1.55+0.05);
+  if(onset && simTime-music.lastBeat > 0.34){
     music.lastBeat=simTime; music.beatPk=1;
     if((vals.beatRipples==null?1:vals.beatRipples) > 0.5){
       const rc=canvas.getBoundingClientRect();          // a shockwave lands somewhere new
@@ -1441,8 +1452,14 @@ function musicUpdate(dt){
       addRipple(sx,sy);
     }
   }
-  music.beatPk *= Math.pow(0.5, dt/0.09);              // punchy decay
+  music.beatPk *= Math.pow(0.5, dt/0.16);              // punchy but round
   music.sig.beat = music.beatPk;
+  // smoothed copies drive the sliders — punch stays, jitter dies
+  for(const k of ["bass","mid","treble","level"]){
+    const t=music.sig[k], o=music.out[k];
+    music.out[k] = t>o ? o+(t-o)*Math.min(1,dt*16) : o+(t-o)*Math.min(1,dt*5.5);
+  }
+  music.out.beat = Math.max(music.out.beat*Math.pow(0.5, dt/0.22), music.sig.beat);
   const mm=document.getElementById("musMeters");        // live meters
   if(mm){
     const v=[music.sig.bass,music.sig.mid,music.sig.treble,music.sig.beat];
