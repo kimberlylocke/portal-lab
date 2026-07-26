@@ -1166,7 +1166,8 @@ function effective(){
     for(const k in musicRoutes){
       const c=byKey[k]; if(!c) continue;
       const sg = music.out[musicRoutes[k]]||0;
-      out[k]=Math.min(c.max, Math.max(c.min, vals[k] + (c.max-c.min)*0.3*A*sg));
+      const dp=(typeof ROUTE_DEPTH!=="undefined"&&ROUTE_DEPTH[k])||0.3;
+      out[k]=Math.min(c.max, Math.max(c.min, vals[k] + (c.max-c.min)*dp*A*sg));
     }
     return out;
   }
@@ -1332,8 +1333,9 @@ const music = {
   bins:null, sig:{bass:0,mid:0,treble:0,level:0,beat:0},
   out:{bass:0,mid:0,treble:0,level:0,beat:0},   // smoothed — what actually drives sliders
   env:{bass:0,mid:0,treble:0,level:0}, beatAvg:0.02, beatPk:0, lastBeat:-9, agc:0.12,
-  lvlAvg:0.02, quietT:0, quietWarned:-99,
+  lvlAvg:0.02, quietT:0, quietWarned:-99, wasAbove:false, wasLvlAbove:false,
 };
+const musicRoutesByPortal = {};        // your custom wiring, remembered per portal
 let musicRoutes = {};                  // slider key -> signal name
 let musicRoutingUI = false;
 const ROUTE_SIGS = ["","bass","mid","treble","beat"];
@@ -1342,21 +1344,30 @@ function routeEligible(k){
   const c = byKey[k];
   return c && !c.jsOnly && !c.toggle && c.step < 1 && k !== "speed";
 }
-function autoRoute(){                  // sensible wiring per portal, one tap
+const ROUTE_DEPTH = {                  // how far music pushes each slider
+  zoom:.12, warp:.2, flow:.2, spectrum:.18, sat:.12, glow:.38, sparkle:.38,
+  fibers:.25, stars:.32, core:.32, contrast:.15, chroma:.25,
+};
+const PORTAL_ROUTES = {                // each portal's signature moves
+  free:      {warp:"bass", sparkle:"treble", core:"beat",  contrast:"mid"},
+  iris:      {glow:"beat", warp:"bass",  sparkle:"treble", spectrum:"mid"},
+  cathedral: {glow:"beat", warp:"bass",  fibers:"mid",     sparkle:"treble"},
+  geode:     {glow:"beat", warp:"bass",  chroma:"treble",  flow:"mid"},
+  moth:      {glow:"beat", warp:"bass",  flow:"mid",       sparkle:"treble"},
+  veil:      {glow:"beat", flow:"bass",  warp:"mid",       stars:"treble"},
+  supernova: {glow:"beat", warp:"bass",  spectrum:"mid",   sparkle:"treble"},
+  nebula:    {glow:"beat", flow:"bass",  warp:"mid",       sparkle:"treble"},
+  clouds:    {glow:"beat", warp:"bass",  spectrum:"mid",   stars:"treble"},
+  galaxy:    {zoom:"beat", warp:"bass",  spectrum:"mid",   sparkle:"treble"},
+  pool:      {zoom:"beat", warp:"bass",  flow:"mid",       sparkle:"treble"},
+  metal:     {glow:"beat", warp:"bass",  sat:"mid",        sparkle:"treble"},
+  grain:     {warp:"beat", flow:"bass",  sat:"mid",        spectrum:"treble"},
+  silk:      {glow:"beat", flow:"bass",  fibers:"mid",     sparkle:"treble"},
+};
+function autoRoute(){                  // this portal's signature wiring, one tap
   musicRoutes = {};
-  const base = cur.mode==="free"
-    ? {warp:"bass", contrast:"mid", sparkle:"treble", zoom:"beat", core:"beat", stars:"treble"}
-    : {warp:"bass", flow:"mid", sparkle:"treble", zoom:"beat", glow:"beat"};
-  const per = {
-    supernova:{glow:"beat", warp:"bass", sparkle:"treble", spectrum:"mid"},
-    galaxy:{spectrum:"mid", sparkle:"treble", zoom:"beat", warp:"bass"},
-    pool:{warp:"bass", sparkle:"treble", zoom:"beat"},
-    grain:{flow:"bass", warp:"beat", spectrum:"treble"},
-    clouds:{warp:"bass", glow:"beat", spectrum:"mid"},
-    metal:{warp:"bass", glow:"beat", sparkle:"treble"},
-    nebula:{warp:"bass", glow:"beat", sparkle:"treble", flow:"mid"},
-  };
-  Object.assign(base, per[cur.id]||{});
+  const base = PORTAL_ROUTES[cur.id] ||
+    {warp:"bass", flow:"mid", sparkle:"treble", glow:"beat"};
   for(const k in base) if(routeEligible(k)) musicRoutes[k]=base[k];
 }
 function musicAttach(st, msg){
@@ -1367,7 +1378,7 @@ function musicAttach(st, msg){
   if(!music.analyser){
     music.analyser = music.ctx.createAnalyser();
     music.analyser.fftSize = 2048;
-    music.analyser.smoothingTimeConstant = 0.35;
+    music.analyser.smoothingTimeConstant = 0.22;
     music.bins = new Uint8Array(music.analyser.frequencyBinCount);
   }
   music.src.connect(music.analyser);
@@ -1459,8 +1470,13 @@ function musicUpdate(dt){
     music.quietWarned = simTime;
     say("Barely hearing anything \u2014 turn it up or move closer");
   }
-  const onset = (raw.bass > music.beatAvg*1.42+0.025) ||
-                (raw.level > music.lvlAvg*1.55+0.05);
+  const above = raw.bass > music.beatAvg*1.38 + 0.02;
+  const bassOnset = above && !music.wasAbove;      // rising edge = the hit itself
+  music.wasAbove = above;
+  const lvlAbove = raw.level > music.lvlAvg*1.55 + 0.05;
+  const lvlOnset = lvlAbove && !music.wasLvlAbove;
+  music.wasLvlAbove = lvlAbove;
+  const onset = bassOnset || (music.beatAvg < 0.035 && lvlOnset);  // broadband only if no bass at all
   if(onset && simTime-music.lastBeat > 0.34){
     music.lastBeat=simTime; music.beatPk=1;
     if((vals.beatRipples==null?1:vals.beatRipples) > 0.5){
@@ -1673,7 +1689,10 @@ const bBlank = document.getElementById("bBlank");
 function selectPortal(p){
   cur = p; vals = {...p.d};
   driftFlags = {...(p.dd || {hue:1})};   // portals default to a gentle hue drift
-  if(music.on) autoRoute();              // fresh wiring for the new portal
+  if(music.on){                          // your saved wiring, else the signature
+    const sv = musicRoutesByPortal[p.id];
+    if(sv) musicRoutes = {...sv}; else autoRoute();
+  }
   buildSliders(); markSelected();
   if(typeof populateAxes==="function") populateAxes();
 }
@@ -1783,6 +1802,7 @@ function buildSliders(){
           if(ROUTE_SIGS[i]) musicRoutes[k]=ROUTE_SIGS[i]; else delete musicRoutes[k];
           rt.textContent=musicRoutes[k]?SIG_ABBR[musicRoutes[k]]:"\u266a";
           rt.classList.toggle("on",!!musicRoutes[k]);
+          musicRoutesByPortal[cur.id]={...musicRoutes};   // remember your wiring
         };
         rowBtns.push(rt);
       }
