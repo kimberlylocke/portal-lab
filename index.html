@@ -1334,6 +1334,7 @@ const music = {
   out:{bass:0,mid:0,treble:0,level:0,beat:0},   // smoothed — what actually drives sliders
   env:{bass:0,mid:0,treble:0,level:0}, beatAvg:0.02, beatPk:0, lastBeat:-9, agc:0.12,
   lvlAvg:0.02, quietT:0, quietWarned:-99, wasAbove:false, wasLvlAbove:false,
+  prevBins:null, fluxAvg:0.004, wasFAbove:false,
 };
 const musicRoutesByPortal = {};        // your custom wiring, remembered per portal
 let musicRoutes = {};                  // slider key -> signal name
@@ -1470,13 +1471,28 @@ function musicUpdate(dt){
     music.quietWarned = simTime;
     say("Barely hearing anything \u2014 turn it up or move closer");
   }
+  // SPECTRAL FLUX — how much NEW energy appeared this frame. A kick is a
+  // transient: it spikes flux even under a wall of sustained bass, which is
+  // why this keeps hearing beats when the chorus hits and plain
+  // loudness-thresholds go blind.
+  if(!music.prevBins) music.prevBins = new Uint8Array(music.bins.length);
+  const nyq2 = music.ctx.sampleRate/2, nb = music.bins.length;
+  const kickHi = Math.ceil(260/nyq2*nb), fluxHi = Math.min(nb-1, Math.ceil(3200/nyq2*nb));
+  let flux = 0;
+  for(let i=1; i<=fluxHi; i++){
+    const d = music.bins[i] - music.prevBins[i];
+    if(d > 0) flux += d * (i <= kickHi ? 2.2 : 1.0);   // weight the kick range
+  }
+  flux /= (fluxHi*255);
+  music.prevBins.set(music.bins);
+  music.fluxAvg += (flux - music.fluxAvg)*Math.min(1, dt*2.2);
+  const fAbove = flux > music.fluxAvg*1.55 + 0.004;
+  const fluxOnset = fAbove && !music.wasFAbove;     // rising edge of the transient
+  music.wasFAbove = fAbove;
   const above = raw.bass > music.beatAvg*1.38 + 0.02;
-  const bassOnset = above && !music.wasAbove;      // rising edge = the hit itself
+  const bassOnset = above && !music.wasAbove;       // clean-kick path (electronic)
   music.wasAbove = above;
-  const lvlAbove = raw.level > music.lvlAvg*1.55 + 0.05;
-  const lvlOnset = lvlAbove && !music.wasLvlAbove;
-  music.wasLvlAbove = lvlAbove;
-  const onset = bassOnset || (music.beatAvg < 0.035 && lvlOnset);  // broadband only if no bass at all
+  const onset = fluxOnset || bassOnset;
   if(onset && simTime-music.lastBeat > 0.34){
     music.lastBeat=simTime; music.beatPk=1;
     if((vals.beatRipples==null?1:vals.beatRipples) > 0.5){
