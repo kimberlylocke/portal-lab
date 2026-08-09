@@ -1086,6 +1086,25 @@ vec3 scene(vec2 p, float t){
   return col;
 }`,
   d:{...D0, warp:1.3, flow:1.2, spectrum:1.3, hue:.3, glow:.5, grain:.35, chroma:1.2, vignette:.3, sat:1.3, fibers:.35}
+},
+{
+  id:"rainbowflare", name:"Rainbow Flare", note:"laser-burst footage inside the tube \u2014 a media portal", mode:"media",
+  media:"rainbow-flare.gif",
+  dd:{},
+  scene:`
+// MEDIA PORTAL \u2014 plays shipped footage through the full post chain:
+// zoom, kaleido, twist, chroma split, warp streak and the beat punch
+// all land on the real footage. Warp/Flow add a liquid wobble.
+vec3 scene(vec2 p, float t){
+  vec2 uv = vec2(p.x, -p.y/max(uMediaAspect, 0.05)) * 1.05 + 0.5;
+  vec2 w = vec2(fbm(p*2.6 + t*0.12*uFlow), fbm(p*2.6 + 7.7 - t*0.09*uFlow)) - 0.5;
+  uv += w * 0.10 * uWarp;
+  vec2 m = abs(fract(uv*0.5)*2.0 - 1.0);   // mirror-tile beyond the edges
+  return texture2D(uMedia, m).rgb;
+}
+`,
+  d:{...D0, zoom:.63, glow:.4, chroma:.3, grain:.15, vignette:.4, sat:1.05, warp:.4, flow:.8, sparkle:1,
+     musicBreath:.72, musicSens:1.88, musicPunch:1.1, twist:-.55, tube:1}
 }
 ];
 
@@ -1103,6 +1122,7 @@ const VERT = "attribute vec2 aP; void main(){ gl_Position = vec4(aP,0.0,1.0); }"
 function headerFor(keys){
   let u = "precision highp float;\nuniform vec2 uRes; uniform float uTime; uniform vec2 uMouse; uniform vec3 uTap;\n";
   u += "uniform vec3 uRipplePts[8];\nuniform sampler2D uPaint;\nuniform float uBeat; uniform float uAud;\n";
+  u += "uniform sampler2D uMedia; uniform float uMediaAspect;\n";
   for(const k of keys) u += "uniform float "+byKey[k].u+";\n";
   return u;
 }
@@ -1232,7 +1252,8 @@ function buildProgram(src, keys){
   if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
   const locs = { uRes:gl.getUniformLocation(p,"uRes"), uTime:gl.getUniformLocation(p,"uTime"), uMouse:gl.getUniformLocation(p,"uMouse"), uTap:gl.getUniformLocation(p,"uTap"),
     uBeat:gl.getUniformLocation(p,"uBeat"), uAud:gl.getUniformLocation(p,"uAud"),
-    uRipplePts:gl.getUniformLocation(p,"uRipplePts[0]"), uPaint:gl.getUniformLocation(p,"uPaint") };
+    uRipplePts:gl.getUniformLocation(p,"uRipplePts[0]"), uPaint:gl.getUniformLocation(p,"uPaint"),
+    uMedia:gl.getUniformLocation(p,"uMedia"), uMediaAspect:gl.getUniformLocation(p,"uMediaAspect") };
   for(const k of keys) locs[k] = gl.getUniformLocation(p, byKey[k].u);
   return {prog:p, locs, keys, aP:gl.getAttribLocation(p,"aP")};
 }
@@ -1538,6 +1559,13 @@ const PORTAL_ROUTES = {                // each portal's signature moves
   metal:     {glow:"beat", warp:"bass",  sat:"mid",        sparkle:"treble"},
   grain:     {warp:"beat", flow:"bass",  sat:"mid",        spectrum:"treble"},
   silk:      {glow:"beat", flow:"bass",  fibers:"harm",    sparkle:"treble"},
+  rainbowflare: {streak:"bass", chroma:"treble", sat:"mid", sparkle:"mid", glow:"mid", spectrum:"treble", zoom:"treble"},
+};
+const PORTAL_ROUTES2 = {               // honed v2 depths/shapes (from the lab)
+  rainbowflare: {streak:{sig:"bass", depth:.4, shape:"flow"}, chroma:{sig:"treble", depth:.25, shape:"flow"},
+                 sat:{sig:"mid", depth:.15, shape:"flow"}, sparkle:{sig:"mid", depth:.38, shape:"flow"},
+                 glow:{sig:"mid", depth:.38, shape:"flow"}, spectrum:{sig:"treble", depth:.18, shape:"flow"},
+                 zoom:{sig:"treble", depth:.12, shape:"flow"}},
 };
 function autoRoute(){                  // this portal's signature wiring, one tap
   musicRoutes = {}; musicRoutes2 = {};
@@ -1545,6 +1573,8 @@ function autoRoute(){                  // this portal's signature wiring, one ta
     {warp:"bass", flow:"mid", sparkle:"treble", glow:"beat"};
   for(const k in base) if(routeEligible(k)) musicRoutes[k]=base[k];
   ensureRoutes2();
+  const p2 = PORTAL_ROUTES2[cur.id];   // honed depths/shapes override the defaults
+  if(p2) for(const k in p2) if(musicRoutes2[k]) musicRoutes2[k] = {...p2[k]};
 }
 function ensureAnalyser(){
   if(music.analyser) return;
@@ -1964,6 +1994,128 @@ function clearPaint(quiet){
   if(!quiet) say("Paint cleared");
 }
 
+/* -------- media portals: shipped footage through the post chain -------- */
+const mediaPlayers = {};
+function mediaIdb(){
+  return new Promise((res, rej) => {
+    const r = indexedDB.open("tripout-media", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("m");
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function mediaIdbGet(k){
+  try{
+    const db = await mediaIdb();
+    return await new Promise((res, rej) => {
+      const rq = db.transaction("m").objectStore("m").get(k);
+      rq.onsuccess = () => res(rq.result || null);
+      rq.onerror = () => rej(rq.error);
+    });
+  }catch(e){ return null; }
+}
+async function mediaIdbPut(k, v){
+  const db = await mediaIdb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("m", "readwrite");
+    tx.objectStore("m").put(v, k);
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+}
+addEventListener("dragover", e => { if(cur && cur.media) e.preventDefault(); });
+addEventListener("drop", async e => {
+  if(!cur || !cur.media || !e.dataTransfer || !e.dataTransfer.files.length) return;
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if(!/^(image|video)\//.test(f.type)){ say("That file isn't footage"); return; }
+  try{
+    await mediaIdbPut(cur.id, f);
+    delete mediaPlayers[cur.id];         // re-init from the fresh local copy
+    say("Footage loaded \u2014 it stays on this computer");
+  }catch(err){ say("Couldn't store the footage: " + err.message); }
+});
+let mediaTexApp = null, mediaAspectApp = 1;
+function ensureMediaTex(){
+  if(mediaTexApp) return;
+  mediaTexApp = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, mediaTexApp);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([8,8,12,255]));
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+}
+function mediaPlayer(pr){
+  let pl = mediaPlayers[pr.id];
+  if(pl) return pl;
+  pl = mediaPlayers[pr.id] = { ready:false, err:null, kind:null, dec:null, count:1,
+                               frameIdx:0, nextAt:0, pending:false, bitmap:null, aspect:1, uploaded:false };
+  (async () => {
+    try{
+      let blob = null;
+      try{
+        const rsp = await fetch(pr.media);
+        if(rsp.ok) blob = await rsp.blob();
+      }catch(e){}
+      if(!blob) blob = await mediaIdbGet(pr.id);           // your private local copy
+      if(!blob){
+        pl.err = "missing footage";
+        say("Drop " + pr.media + " anywhere on the page \u2014 it stays on this computer, never in the repo");
+        return;
+      }
+      const type = blob.type || (/\.gif$/i.test(pr.media) ? "image/gif" : "");
+      if(/gif/.test(type) && window.ImageDecoder){
+        const buf = await blob.arrayBuffer();
+        pl.dec = new ImageDecoder({ data: buf, type: "image/gif" });
+        await pl.dec.tracks.ready;
+        pl.count = (pl.dec.tracks.selectedTrack && pl.dec.tracks.selectedTrack.frameCount) || 1;
+        pl.kind = "gif"; pl.ready = true;
+      } else {
+        pl.bitmap = await createImageBitmap(blob);
+        pl.aspect = pl.bitmap.height/pl.bitmap.width;
+        pl.kind = "img"; pl.ready = true;
+      }
+    }catch(e){ pl.err = "media failed: " + e.message; say(pl.err); }
+  })();
+  return pl;
+}
+function mediaUploadApp(src, aspect){
+  ensureMediaTex();
+  gl.activeTexture(gl.TEXTURE1);
+  gl.bindTexture(gl.TEXTURE_2D, mediaTexApp);
+  try{ gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src); }catch(e){ return; }
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  mediaAspectApp = aspect;
+}
+function mediaAdvanceApp(){
+  if(!cur || !cur.media) return;
+  const pl = mediaPlayer(cur);
+  if(!pl.ready) return;
+  const sp = Math.max(vals.speed || 1, 0.05);
+  if(pl.kind === "gif" && !pl.pending){
+    const nowMs = performance.now();
+    if(nowMs >= pl.nextAt){
+      pl.pending = true;
+      pl.dec.decode({ frameIndex: pl.frameIdx }).then(res => {
+        const vf = res.image;
+        pl.aspect = vf.displayHeight/Math.max(vf.displayWidth, 1);
+        mediaUploadApp(vf, pl.aspect);
+        const durMs = vf.duration ? vf.duration/1000 : 80;
+        vf.close();
+        pl.frameIdx = (pl.frameIdx + 1) % pl.count;
+        pl.nextAt = nowMs + durMs/sp;
+        pl.pending = false;
+      }).catch(() => { pl.pending = false; });
+    }
+  } else if(pl.kind === "img" && !pl.uploaded){
+    mediaUploadApp(pl.bitmap, pl.aspect);
+    pl.uploaded = true;
+  }
+}
+
 /* -------- draw -------- */
 function draw(){
   const P = getProgram(cur);
@@ -1988,6 +2140,13 @@ function draw(){
   if(P.locs.uAud)  gl.uniform1f(P.locs.uAud,  music.out.level*mA);
   if(P.locs.uTap) gl.uniform3f(P.locs.uTap, tapState.x, tapState.y, tapState.t);
   if(P.locs.uRipplePts) gl.uniform3fv(P.locs.uRipplePts, rippleArr);
+  if(P.locs.uMedia){
+    ensureMediaTex();
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, mediaTexApp);
+    gl.uniform1i(P.locs.uMedia, 1);
+    if(P.locs.uMediaAspect) gl.uniform1f(P.locs.uMediaAspect, mediaAspectApp);
+  }
   if(P.locs.uPaint && paintTexA){
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, paintTexA);
@@ -2028,6 +2187,7 @@ function tick(now){
     musicUpdate(dt);
     mouse.x += (mouse.tx-mouse.x)*0.08;
     mouse.y += (mouse.ty-mouse.y)*0.08;
+    mediaAdvanceApp();
     if(performOn && (performTool==="play" || performTool==="spin")){
       const m = effMap();   // liquid easing: values glide toward your finger
       if(pfTarget.x!==null) vals[m.x] += (pfTarget.x - vals[m.x])*0.07;
@@ -2535,7 +2695,7 @@ function bakeShaderToy(){
   const e=effective();
   let h="// Trip Out — \""+cur.name+"\"\n// Your exact settings, baked in. Paste into shadertoy.com → New.\n\n";
   for(const k of keys) h+="const float "+byKey[k].u+" = "+(+(e[k]!==undefined?e[k]:byKey[k].min)).toFixed(3)+";\n";
-  h+="const vec2 uMouse = vec2(0.0);\nconst vec3 uTap = vec3(0.0);\nconst float uBeat = 0.0; const float uAud = 0.0;\n#define uTime iTime\n";
+  h+="const vec2 uMouse = vec2(0.0);\nconst vec3 uTap = vec3(0.0);\nconst float uBeat = 0.0; const float uAud = 0.0;\n#define uTime iTime\n#define uMedia iChannel0\nconst float uMediaAspect = 1.0;\n";
   const main=`
 void mainImage(out vec4 fragColor, in vec2 fragCoord){
   vec2 uv = (fragCoord - 0.5*iResolution.xy)/iResolution.y;
