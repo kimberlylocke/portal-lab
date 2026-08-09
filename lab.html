@@ -208,6 +208,10 @@
     position:absolute; top:14px; left:14px; z-index:5;
     background:rgba(253,252,248,.92); backdrop-filter:blur(3px);
   }
+  #vproject{
+    position:absolute; top:14px; right:14px; z-index:5;
+    background:rgba(253,252,248,.92); backdrop-filter:blur(3px);
+  }
   #stagehud{
     position:absolute; left:16px; bottom:12px; z-index:5; pointer-events:none;
     color:rgba(255,255,255,.55); font-size:9px; letter-spacing:.2em; text-transform:uppercase;
@@ -311,7 +315,7 @@
 <div id="grid"></div>
 
 <footer>
-  <span id="verstamp">Trip Out — Shader Lab <b style="font-weight:400;color:var(--ink)">v4 · media portals</b> · stored locally in this browser</span>
+  <span id="verstamp">Trip Out — Shader Lab <b style="font-weight:400;color:var(--ink)">v5 · projector</b> · stored locally in this browser</span>
   <span>winners paste into the main app unchanged — scene, defaults and routing</span>
 </footer>
 
@@ -319,6 +323,7 @@
 <div id="view">
   <div id="stage">
     <button id="vclose">&larr; Library</button>
+    <button id="vproject" title="Project opens a clean output window — drag it to the TV or projector, double-click for fullscreen. Keep the lab window on your laptop; the output shows only the art.">Project &#x26F6;</button>
     <canvas id="bigcv"></canvas>
     <div id="stagehud"></div>
   </div>
@@ -2153,7 +2158,9 @@ async function handleFiles(files){
 /* =====================================================================
    RENDER LOOP
    ===================================================================== */
-function frame(ts){
+/* tick(now): advance time + draw ONE frame, never schedules itself —
+   the projector's drive() loop calls this directly when we're occluded */
+function tick(ts){
   const dt = Math.min((ts - lastTs)/1000 || 0.016, 0.1);
   lastTs = ts;
   simTime += dt;
@@ -2179,7 +2186,50 @@ function frame(ts){
       drawCtx(c.ctx, eff, musicAmountOf(eff), simTime, 1);
     }
   }
-  requestAnimationFrame(frame);
+  // explicit frame push to the projector — Chrome stops delivering frames
+  // from a hidden/occluded canvas without this
+  if(projTrack && projTrack.requestFrame){ try{ projTrack.requestFrame(); }catch(e){} }
+}
+function frame(ts){ tick(ts); requestAnimationFrame(frame); }
+
+/* =====================================================================
+   PROJECTOR OUTPUT — clean window mirroring the fullscreen canvas
+   (battle-tested mechanics from the main app; see each comment)
+   ===================================================================== */
+let projWin = null, projStream = null, projTrack = null;
+function openProjector(){
+  if(projWin && !projWin.closed){ projWin.focus(); return; }
+  // fresh captureStream per open — a closed popup kills its tracks;
+  // reusing the stream = black output on reopen
+  if(projStream){ try{ projStream.getTracks().forEach(t => t.stop()); }catch(e){} }
+  projStream = bigcv.captureStream(0);          // manual frames — we push every draw
+  projTrack = projStream.getVideoTracks()[0];
+  projWin = window.open("", "tripout_lab_proj", "width=960,height=540");
+  if(!projWin){ toast('allow popups for this site to open the projector'); projTrack = null; return; }
+  const d = projWin.document;
+  d.write('<!doctype html><title>Trip Out Lab — Output</title><style>'
+    +'html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}'
+    +'video{width:100%;height:100%;object-fit:cover}body.fit video{object-fit:contain}'
+    +'#b{position:fixed;right:14px;bottom:14px;display:flex;gap:8px}'
+    +'#b button{font:12px monospace;color:#888;background:#111;border:1px solid #333;padding:9px 14px;cursor:pointer}'
+    +'</style><video autoplay muted playsinline></video>'
+    +'<div id="b"><button id="m">Fit</button><button id="f">Fullscreen</button></div>');
+  d.close();
+  const v = d.querySelector("video"); v.srcObject = projStream;
+  const pl = v.play(); if(pl && pl.catch) pl.catch(() => {});
+  d.addEventListener("click", () => { const q = v.play(); if(q && q.catch) q.catch(() => {}); }, {once:true});
+  d.addEventListener("dblclick", () => { d.fullscreenElement ? d.exitFullscreen && d.exitFullscreen()
+    : d.documentElement.requestFullscreen && d.documentElement.requestFullscreen(); });
+  d.getElementById("f").onclick = () => { d.documentElement.requestFullscreen && d.documentElement.requestFullscreen(); };
+  const mb = d.getElementById("m");
+  mb.onclick = () => { const fit = d.body.classList.toggle("fit"); mb.textContent = fit ? "Fill" : "Fit"; };
+  (function drive(){                            // the VISIBLE window paces the engine:
+    if(!projWin || projWin.closed){ projTrack = null; return; }
+    // when the output window fully covers the main window, Chrome suspends
+    // the main window's rAF — the popup is visible, so ITS rAF calls tick()
+    if(document.hidden) tick(performance.now());
+    projWin.requestAnimationFrame(drive);
+  })();
 }
 function musicAmountOf(eff){
   if(!music.on) return 0;
@@ -2228,6 +2278,7 @@ document.getElementById('impGo').addEventListener('click', runImport);
 document.getElementById('impCancel').addEventListener('click', closeImport);
 imp.addEventListener('click', e => { if(e.target === imp) closeImport(); });
 document.getElementById('vclose').addEventListener('click', closeView);
+document.getElementById('vproject').addEventListener('click', openProjector);
 document.getElementById('btnCompile').addEventListener('click', recompile);
 document.getElementById('btnExport').addEventListener('click', () => doExport(curExp()));
 document.getElementById('btnDup').addEventListener('click', duplicate);
@@ -2316,7 +2367,7 @@ window.__labSelfTest = function(){
 window.__lab = { music, metro, scrub, exps: () => exps, effectiveLab, startMetro, startScrub, fireBeat, D0,
                  getEngine: () => ENGINE, setEngine, ensureRoutes2 };
 
-console.log('TRIP OUT LAB v4 — media portals · engines v1/v2 · ' + (window.ImageDecoder ? 'GIF decode OK' : 'no ImageDecoder (GIFs show first frame)'));
+console.log('TRIP OUT LAB v5 — projector + media portals · engines v1/v2 · ' + (window.ImageDecoder ? 'GIF decode OK' : 'no ImageDecoder (GIFs show first frame)'));
 try{ const sv = storage.getItem('tripout-lab-engine'); if(sv === 'v1' || sv === 'v2') ENGINE = sv; }catch(e){}
 loadStore();
 exps.forEach(ensureRoutes2);
