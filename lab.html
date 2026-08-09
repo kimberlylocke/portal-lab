@@ -315,7 +315,7 @@
 <div id="grid"></div>
 
 <footer>
-  <span id="verstamp">Trip Out — Shader Lab <b style="font-weight:400;color:var(--ink)">v5 · projector</b> · stored locally in this browser</span>
+  <span id="verstamp">Trip Out — Shader Lab <b style="font-weight:400;color:var(--ink)">v6 · projector-safe</b> · stored locally in this browser</span>
   <span>winners paste into the main app unchanged — scene, defaults and routing</span>
 </footer>
 
@@ -809,12 +809,17 @@ function mapErrorLines(log){
   }).join('\n');
 }
 
-function drawCtx(ctx, eff, mA, time, dprCap){
+function drawCtx(ctx, eff, mA, time, dprCap, budgetPx){
   const { gl, canvas, locs } = ctx;
   if(!ctx.prog) return;
   const dpr = Math.min(devicePixelRatio || 1, dprCap);
-  const w = Math.max(2, Math.round(canvas.clientWidth * dpr));
-  const h = Math.max(2, Math.round(canvas.clientHeight * dpr));
+  let w = Math.max(2, Math.round(canvas.clientWidth * dpr));
+  let h = Math.max(2, Math.round(canvas.clientHeight * dpr));
+  if(budgetPx && w*h > budgetPx){          // pixel budget: never out-render the GPU
+    const s = Math.sqrt(budgetPx/(w*h));
+    w = Math.max(2, Math.round(w*s));
+    h = Math.max(2, Math.round(h*s));
+  }
   if(canvas.width !== w || canvas.height !== h){ canvas.width = w; canvas.height = h; }
   gl.viewport(0, 0, w, h);
   gl.useProgram(ctx.prog);
@@ -909,7 +914,9 @@ function musicTick(dt){
       // This is what makes a laptop mic (no sub-bass, hyped treble, room hiss)
       // deliver the same 0..1 signals as a pristine tab capture.
       for(const k in raw){
-        const fl = music.v2.floor[k] = Math.min(music.v2.floor[k] + dt*0.008, raw[k]); // floor creeps up, drops instantly
+        const fl = music.v2.floor[k] = Math.min(
+      raw[k] < music.v2.floor[k] + 0.02 ? music.v2.floor[k] + dt*0.02 : music.v2.floor[k],
+      raw[k]);   // floor learns only during quiet — sustained music never eats itself // floor creeps up, drops instantly
         const pk = music.v2.peak[k] = Math.max(music.v2.peak[k]*Math.pow(0.5, dt/8), raw[k], fl + 0.03);
         const dr = pk - fl;
         // GATE: a band whose ceiling barely clears its noise floor has no real
@@ -1735,10 +1742,53 @@ function updateTally(){
    FULLSCREEN VIEW
    ===================================================================== */
 const view = document.getElementById('view');
-const bigcv = document.getElementById('bigcv');
+let bigcv = document.getElementById('bigcv');
 const errBox = document.getElementById('err');
 const codeTA = document.getElementById('code');
 let viewCtx = null, viewId = null;
+
+/* auto-quality governor — drops render scale before the GPU drowns */
+const Q_STEPS = [1, .82, .66, .5, .38];
+const PERF = { ema: 12, qIdx: 0, n: 0 };
+function viewBudget(){
+  const base = projTrack ? 1920*1080 : 2600000;   // hard 1080p ceiling while projecting
+  const q = Q_STEPS[PERF.qIdx];
+  return Math.round(base*q*q);
+}
+function perfNote(cost){
+  PERF.ema = PERF.ema*0.92 + cost*0.08;
+  if(++PERF.n < 45) return;
+  PERF.n = 0;
+  if(PERF.ema > 24 && PERF.qIdx < Q_STEPS.length - 1){
+    PERF.qIdx++;
+    toast('auto quality: render scale ' + Math.round(Q_STEPS[PERF.qIdx]*100) + '% — keeping the frame rate safe');
+  } else if(PERF.ema < 10 && PERF.qIdx > 0){
+    PERF.qIdx--;
+  }
+}
+/* GPU reset recovery — a lost context otherwise means a dead black stage */
+function armBigcvLoss(){
+  bigcv.addEventListener('webglcontextlost', e => {
+    e.preventDefault();
+    const fresh = document.createElement('canvas');
+    fresh.id = 'bigcv';
+    bigcv.replaceWith(fresh);
+    bigcv = fresh;
+    armBigcvLoss();
+    viewCtx = null;
+    if(projStream){ try{ projStream.getTracks().forEach(t => t.stop()); }catch(e2){} }
+    projTrack = null;
+    if(projWin && !projWin.closed){ try{ projWin.close(); }catch(e2){} }
+    projWin = null;
+    PERF.qIdx = Math.min(PERF.qIdx + 2, Q_STEPS.length - 1);   // come back gentler
+    const exp = curExp();
+    if(exp && view.classList.contains('open')){
+      viewCtx = createGL(bigcv);
+      if(viewCtx){ const r = compileInto(viewCtx, exp.scene); showErr(r.error || null); }
+    }
+    toast('graphics reset — recovered at lower quality; hit Project again if you were projecting');
+  });
+}
 
 function P(exp){ return { ...D0, ...(exp.d || {}) }; }
 function curExp(){ return exps.find(e => e.id === viewId); }
@@ -2160,7 +2210,10 @@ async function handleFiles(files){
    ===================================================================== */
 /* tick(now): advance time + draw ONE frame, never schedules itself —
    the projector's drive() loop calls this directly when we're occluded */
+let lastTickStamp = 0;
 function tick(ts){
+  if(ts - lastTickStamp < 4) return;   // never double-step when two loops pace us
+  lastTickStamp = ts;
   const dt = Math.min((ts - lastTs)/1000 || 0.016, 0.1);
   lastTs = ts;
   simTime += dt;
@@ -2171,7 +2224,9 @@ function tick(ts){
       if(exp){
         const eff = effectiveLab(exp);
         if(exp.mode === 'media') mediaAdvance(exp, eff.speed, () => [viewCtx]);
-        drawCtx(viewCtx, eff, musicAmountOf(eff), simTime, 1.5);
+        const t0p = performance.now();
+        drawCtx(viewCtx, eff, musicAmountOf(eff), simTime, 1.5, viewBudget());
+        perfNote(performance.now() - t0p);
         if(music.on) updateGhosts(eff);
       }
     }
@@ -2227,7 +2282,9 @@ function openProjector(){
     if(!projWin || projWin.closed){ projTrack = null; return; }
     // when the output window fully covers the main window, Chrome suspends
     // the main window's rAF — the popup is visible, so ITS rAF calls tick()
-    if(document.hidden) tick(performance.now());
+    // cap projector-paced rendering at ~60fps — a 120Hz laptop panel would
+    // otherwise double the GPU load exactly when we're most stressed
+    if(document.hidden && performance.now() - lastTickStamp >= 15) tick(performance.now());
     projWin.requestAnimationFrame(drive);
   })();
 }
@@ -2367,8 +2424,9 @@ window.__labSelfTest = function(){
 window.__lab = { music, metro, scrub, exps: () => exps, effectiveLab, startMetro, startScrub, fireBeat, D0,
                  getEngine: () => ENGINE, setEngine, ensureRoutes2 };
 
-console.log('TRIP OUT LAB v5 — projector + media portals · engines v1/v2 · ' + (window.ImageDecoder ? 'GIF decode OK' : 'no ImageDecoder (GIFs show first frame)'));
+console.log('TRIP OUT LAB v6 — projector-safe (pixel budget + auto quality) · engines v1/v2 · ' + (window.ImageDecoder ? 'GIF decode OK' : 'no ImageDecoder (GIFs show first frame)'));
 try{ const sv = storage.getItem('tripout-lab-engine'); if(sv === 'v1' || sv === 'v2') ENGINE = sv; }catch(e){}
+armBigcvLoss();
 loadStore();
 exps.forEach(ensureRoutes2);
 renderGrid();
