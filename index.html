@@ -260,6 +260,8 @@
   .performRow select{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;
     color:var(--ink);background:var(--paper);border:1px solid var(--rule);padding:7px 6px;width:100%}
   body.perform #panel{display:none}
+  #pfTools,#pfBar,#pfHud{transition:opacity .5s}
+  body.pfhide #pfTools, body.pfhide #pfBar, body.pfhide #pfHud{opacity:0;pointer-events:none}
   body.perform #stage{inset:0 !important;border:none !important}
   #pfBar{position:fixed;top:calc(12px + env(safe-area-inset-top));right:14px;z-index:9;display:none;gap:8px}
   body.perform #pfBar{display:flex}
@@ -626,7 +628,7 @@ const CTLS = [
   {k:"grain",   u:"uGrain",   label:"Grain",       min:0,max:1,   step:.01, group:"Post"},
   {k:"vignette",u:"uVignette",label:"Vignette",    min:0,max:1,   step:.01, group:"Post"},
 ];
-const GROUP_ORDER = ["Music","Space","Orb","Field","Light","Color","Post","Paint","Motion"];
+const GROUP_ORDER = ["Music","Space","Field","Light","Color","Post","Paint","Motion"]; // Orb shelved — engine intact, re-add "Orb" here to restore
 const byKey = {}; CTLS.forEach(c=>byKey[c.k]=c);
 
 function uniformKeysForMode(m){
@@ -639,7 +641,7 @@ function uiKeysForMode(m){
 /* -------- learning notes per group -------- */
 const LESSONS = {
   Space: {
-    text:"A shader runs once for every pixel, and the only thing it knows is that pixel's coordinate — a pair of numbers called p. Everything in this group is just math done to p before anything is drawn: rotating multiplies it by a tiny matrix, mirroring takes an absolute value, twisting adds the radius to the angle. Bend the coordinates, and everything drawn in them bends too. Tube Flythrough is the boldest bend of all: the angle around center becomes around-the-tunnel-wall, 1/radius becomes distance-ahead, and adding time to that distance flies you forward — any portal becomes a wormhole. Orb does the opposite bend: it wraps the portal onto a lit sphere spinning in 3D, floating in your Stars sky. Orb Spin sets how fast it turns (negative = backwards), the DJ Spin tool grabs the same yaw so you spin the planet by hand, and Bounce sends the whole ball ricocheting off the frame edges.",
+    text:"A shader runs once for every pixel, and the only thing it knows is that pixel's coordinate — a pair of numbers called p. Everything in this group is just math done to p before anything is drawn: rotating multiplies it by a tiny matrix, mirroring takes an absolute value, twisting adds the radius to the angle. Bend the coordinates, and everything drawn in them bends too. Tube Flythrough is the boldest bend of all: the angle around center becomes around-the-tunnel-wall, 1/radius becomes distance-ahead, and adding time to that distance flies you forward — any portal becomes a wormhole.",
     code:"if(uMirX > 0.5) p.x = abs(p.x);   // mirror = absolute value\nfloat ang = atan(p.y,p.x) + uTwist*r;  // twist = angle grows with radius"
   },
   Music: {
@@ -1918,6 +1920,7 @@ function tick(now){
       if(dragging) hudText();
     }
     try{ draw(); }catch(err){ /* surfaced via Glass */ }
+    if(projTrack && projTrack.requestFrame){ try{ projTrack.requestFrame(); }catch(e){} }
   }
 }
 function frame(now){ tick(now); requestAnimationFrame(frame); }
@@ -2217,23 +2220,48 @@ document.getElementById("bMusic").onclick=()=>{
   const d=document.getElementById("grp-Music"); if(d) d.scrollIntoView({block:"start"});
 };
 /* -------- projector: a clean output window for the TV -------- */
-let projWin=null, projStream=null;
+let projWin=null, projStream=null, projTrack=null;
 function openProjector(){
   if(projWin && !projWin.closed){ projWin.focus(); return; }
-  projStream = projStream || canvas.captureStream(60);
+  if(projStream){ try{ projStream.getTracks().forEach(t=>t.stop()); }catch(e){} }
+  projStream = canvas.captureStream(0);    // manual frames: we push every draw ourselves
+  projTrack = projStream.getVideoTracks()[0];
   projWin = window.open("", "tripout_proj", "width=960,height=540");
   if(!projWin){ say("Popup blocked \u2014 allow popups for this site"); return; }
   const d = projWin.document;
   d.write('<!doctype html><title>Trip Out \u2014 Output</title><style>html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}video{width:100%;height:100%;object-fit:cover}body.fit video{object-fit:contain}#b{position:fixed;right:14px;bottom:14px;display:flex;gap:8px}#b button{font:12px monospace;color:#888;background:#111;border:1px solid #333;padding:9px 14px;cursor:pointer}</style><video autoplay muted playsinline></video><div id="b"><button id="m">Fit</button><button id="f">Fullscreen</button></div>');
   d.close();
   const v = d.querySelector("video"); v.srcObject = projStream;
+  const pl = v.play(); if(pl && pl.catch) pl.catch(()=>{});
+  d.addEventListener("click", ()=>{ const q=v.play(); if(q&&q.catch) q.catch(()=>{}); }, {once:true});
+  d.addEventListener("dblclick", ()=>{
+    if(d.fullscreenElement){ d.exitFullscreen&&d.exitFullscreen(); }
+    else if(d.documentElement.requestFullscreen) d.documentElement.requestFullscreen();
+  });
   const fb = d.getElementById("f");
   fb.onclick = ()=>{ if(d.documentElement.requestFullscreen) d.documentElement.requestFullscreen(); fb.style.display="none"; };
   const mb = d.getElementById("m");
   mb.onclick = ()=>{ const fit=d.body.classList.toggle("fit"); mb.textContent=fit?"Fill":"Fit"; };
+  (function drive(){                       // the VISIBLE window paces the engine
+    if(!projWin || projWin.closed){ projTrack=null; return; }
+    if(document.hidden) tick(performance.now());
+    projWin.requestAnimationFrame(drive);
+  })();
   say("Output window open \u2014 drag it to the screen, hit Fullscreen");
 }
 document.getElementById("bProj").onclick = openProjector;
+/* DJ mode: the interface disappears when your hands do */
+let pfIdle=null;
+function pfWake(){
+  document.body.classList.remove("pfhide");
+  clearTimeout(pfIdle);
+  pfIdle=setTimeout(()=>{
+    if(document.body.classList.contains("perform")) document.body.classList.add("pfhide");
+  }, 3500);
+}
+window.addEventListener("pointerdown", ()=>{ if(document.body.classList.contains("perform")) pfWake(); });
+window.addEventListener("pointermove", ()=>{ if(document.body.classList.contains("perform")) pfWake(); });
+document.getElementById("bPerform").addEventListener("click", ()=>setTimeout(pfWake, 200));
 let hiddenClock = null;                    // keeps the output alive when this
 document.addEventListener("visibilitychange", ()=>{   // window is fully covered
   const need = (projWin && !projWin.closed) || music.on;
