@@ -260,6 +260,7 @@
   .performRow select{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;
     color:var(--ink);background:var(--paper);border:1px solid var(--rule);padding:7px 6px;width:100%}
   body.perform #panel{display:none}
+  .ctl output.live{color:#8e1f13}
   .routebox{display:flex;gap:8px;align-items:center;padding:2px 4px 8px 12px}
   .routebox label{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim,#888)}
   .routebox input[type=range]{width:84px}
@@ -1288,6 +1289,34 @@ function keyPhase(k){  // stable per-control phase so drifts don't sync up
   for(let i=0;i<k.length;i++) h = (h*31 + k.charCodeAt(i)) % 997;
   return h/997*6.283;
 }
+let liveOuts = {}, liveN = 0, liveDirty = false;
+function updateLiveOuts(e){
+  const on = music.on && !music.renderMute;
+  if(!on){
+    if(liveDirty){
+      for(const k in liveOuts){
+        const {out, c} = liveOuts[k];
+        out.classList.remove("live");
+        out.textContent = c.step>=1 ? String(Math.round(vals[k])) : (+vals[k]).toFixed(2);
+      }
+      liveDirty = false;
+    }
+    return;
+  }
+  liveDirty = true;
+  for(const k in liveOuts){
+    const {out, c} = liveOuts[k];
+    const v = e[k];
+    if(typeof v !== "number") continue;
+    if(Math.abs(v - vals[k]) > 0.004){
+      out.textContent = c.step>=1 ? String(Math.round(v)) : (+v).toFixed(2);
+      out.classList.add("live");
+    } else {
+      out.classList.remove("live");
+      out.textContent = c.step>=1 ? String(Math.round(vals[k])) : (+vals[k]).toFixed(2);
+    }
+  }
+}
 function effective(){
   if(music.on && !music.renderMute){       // MUSIC ENGINE V2 — few strong moves:
     // routed sliders do NOT breathe (their base stays clean under the accent);
@@ -1602,6 +1631,7 @@ function musicAttach(st, msg){
   music.on = true;
   if(!Object.keys(musicRoutes).length) autoRoute();
   setMusicUI(true); say(msg);
+  buildSliders();          // routes may have just been wired — refresh the chips
 }
 function syncSeg(){
   const seg=document.getElementById("musSeg"); if(!seg) return;
@@ -1670,6 +1700,7 @@ async function musicStartFile(file){    // Phase 2: play a track inside the app
     music.on = true;
     if(!Object.keys(musicRoutes).length) autoRoute();
     setMusicUI(true);
+    buildSliders();
     const pos = music.queue.length > 1 ? (music.qi+1)+"/"+music.queue.length+" \u00b7 " : "";
     say("Playing "+pos+file.name+" \u266a");
   }catch(err){ say("Couldn\u2019t play that file \u2014 try an MP3, M4A or WAV"); }
@@ -2120,6 +2151,7 @@ function mediaAdvanceApp(){
 function draw(){
   const P = getProgram(cur);
   const e = effective();
+  if(++liveN >= 3){ liveN = 0; updateLiveOuts(e); }
   stepPaint();                              // advance the liquid-light field
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   rippleArr.fill(0);
@@ -2353,6 +2385,7 @@ const slidersEl = document.getElementById("sliders");
 const inputs = {};
 const openGroups = {Space:true, Field:true, Color:true};
 function buildSliders(){
+  liveOuts = {};
   slidersEl.innerHTML=""; for(const k in inputs) delete inputs[k];
   const keys = uiKeysForMode(cur.mode);
   const groups = {};
@@ -2376,8 +2409,7 @@ function buildSliders(){
         +'<button data-in="files">FILES</button><button class="nx" data-in="next" title="Next track">\u25b8</button></div>'
         +'<input id="musFileIn" type="file" accept="audio/*" multiple style="display:none">'
         +'<button class="slab" id="bRouting"><span>ROUTING \u2014 <b id="slabTxt">OFF</b></span><span class="st" id="slabSt">\u25cb</span></button>'
-        +'<div class="musRow2"><button class="tert" id="bAutoRoute">AUTO-ROUTE</button>'
-        +'<button class="musTog" id="bBeatRip"></button></div>';
+        +'<div class="musRow2"><button class="tert" id="bAutoRoute">AUTO-ROUTE</button></div>';
       body.appendChild(head);
       const fIn=head.querySelector("#musFileIn");
       head.querySelector("#musSeg").onclick=(e)=>{
@@ -2404,12 +2436,6 @@ function buildSliders(){
       head.querySelector("#bAutoRoute").onclick=()=>{
         autoRoute(); musicRoutesByPortal[cur.id]={...musicRoutes};
         buildSliders(); say("Routed for "+cur.name);
-      };
-      const br=head.querySelector("#bBeatRip");
-      br.textContent="BEAT RIPPLES "+((vals.beatRipples||0)>0.5?"\u25cf ON":"\u25cb OFF");
-      br.onclick=()=>{
-        vals.beatRipples=(vals.beatRipples||0)>0.5?0:1;
-        br.textContent="BEAT RIPPLES "+((vals.beatRipples||0)>0.5?"\u25cf ON":"\u25cb OFF");
       };
       syncSeg();
     }
@@ -2461,12 +2487,14 @@ function buildSliders(){
         db.onclick=()=>{ driftFlags[k]=driftFlags[k]?0:1; db.classList.toggle("on",!!driftFlags[k]); };
         rowBtns.push(db);
       }
-      if(musicRoutingUI && musicRoutes[k] && routeEligible(k)){
+      if(musicRoutingUI && routeEligible(k)){
         wrap.classList.add("driftable");
         const rt=document.createElement("button");
-        rt.className="rt on";
-        rt.textContent="\u266a"+SIG_ABBR[musicRoutes[k]];
-        rt.title="This slider is music-driven \u2014 tap to cycle Bass / Mid / Treble / Harmony / Beat / off";
+        const sg0=musicRoutes[k]||"";
+        rt.className="rt"+(sg0?" on":"");
+        rt.textContent=sg0?"\u266a"+SIG_ABBR[sg0]:"\u00b7";
+        rt.title=sg0?"Music-driven \u2014 tap to cycle Bass / Mid / Treble / Harmony / Beat / off"
+                    :"Tap to wire this slider to the music: Bass / Mid / Treble / Harmony / Beat";
         rt.onclick=()=>{
           const i=(ROUTE_SIGS.indexOf(musicRoutes[k]||"")+1)%ROUTE_SIGS.length;
           if(ROUTE_SIGS[i]){ musicRoutes[k]=ROUTE_SIGS[i]; rt.textContent="\u266a"+SIG_ABBR[musicRoutes[k]]; }
@@ -2485,6 +2513,7 @@ function buildSliders(){
       if(rowBtns.length){ wrap.append(lab,...rowBtns,out,inp); }
       else { wrap.append(lab,out,inp); }
       body.appendChild(wrap);
+      if(routeEligible(k) || k==="hue") liveOuts[k]={out, c};
       if(musicRoutingUI && musicRoutes[k] && routeEligible(k)){
         ensureRoutes2();
         const rr = musicRoutes2[k];
@@ -2538,6 +2567,7 @@ document.getElementById("bPlay").onclick=function(){ playing=!playing; this.text
 document.getElementById("bMusic").onclick=()=>{
   if(music.on){ musicStop(); return; }
   musicStart(music.deviceId);
+  musicRoutingUI = true;
   showTab("build"); openGroups.Music=true; buildSliders();
   const d=document.getElementById("grp-Music"); if(d) d.scrollIntoView({block:"start"});
 };
