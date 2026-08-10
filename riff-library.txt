@@ -1,0 +1,102 @@
+TRIP OUT LAB — RIFF LIBRARY vol.1: the feedback family
+Paste this ENTIRE file into Import (needs lab v8 — footer must say "feedback engine").
+These scenes are deliberately tiny: the feedback engine does most of the work.
+Riff by bending the Feedback group first (Amount, Persistence, Tunnel Push, Swirl,
+Liquid, Ghost Hue) — every one of them takes music routes.
+
+// ──────────────────────────────────────────────
+{
+  id:"echotunnel", name:"Echo Tunnel", note:"one ring of light — the feedback loop builds the corridor", mode:"preset",
+  scene:`
+// ECHO TUNNEL — the scene is JUST a spectral ring and a spark of core.
+// Tunnel Push re-projects each frame outward: the ring's own past
+// becomes an endless corridor. Swirl bends it; kick punches it deeper.
+vec3 scene(vec2 p, float t){
+  float r = length(p);
+  float a = atan(p.y, p.x);
+  float ring = exp(-abs(r - 0.28)*22.0);
+  vec3 col = spectral(a/6.28318 + t*0.05 + uHue) * ring * 1.6;
+  col += vec3(1.0, 0.95, 0.85) * exp(-r*14.0) * 0.8;
+  return col;
+}
+`,
+  d:{...D0, fbAmt:.9, fbDecay:.965, fbZoom:1.4, fbRot:.4, glow:.4, grain:.15, vignette:.35, speed:.8, zoom:.8, chroma:.25},
+  dd:{}
+}
+// music — add inside PORTAL_ROUTES in index.html:
+  echotunnel: {fbZoom:"beat", fbRot:"bass", glow:"beat", fbHue:"treble"},
+// engine v2 routing (bipolar depth, shape flow|hit|step) — for the v2 engine:
+  echotunnel: {fbZoom:{sig:"beat", depth:.5, shape:"hit"}, fbRot:{sig:"bass", depth:.3, shape:"flow"}, glow:{sig:"beat", depth:.35, shape:"hit"}, fbHue:{sig:"treble", depth:.2, shape:"flow"}},
+// ──────────────────────────────────────────────
+{
+  id:"liquidsmear", name:"Liquid Smear", note:"three comets melted by the liquid feedback field", mode:"preset",
+  scene:`
+// LIQUID SMEAR — three drifting points of colored light. Persistence
+// keeps their past alive; Liquid warps the ghosts into oil. This is
+// the light-show smear the paint field hints at, running free.
+vec3 scene(vec2 p, float t){
+  vec3 col = vec3(0.0);
+  for(int i = 0; i < 3; i++){
+    float fi = float(i);
+    vec2 c = vec2(sin(t*(0.4 + fi*0.13) + fi*2.1), cos(t*(0.31 + fi*0.11) + fi*4.2))*0.5;
+    float d = length(p - c);
+    col += spectral(fi*0.33 + t*0.03 + uHue) * exp(-d*d*90.0) * 1.8;
+  }
+  return col;
+}
+`,
+  d:{...D0, fbAmt:.95, fbDecay:.985, fbWarp:1.6, fbZoom:.1, speed:1, glow:.3, grain:.1, vignette:.3, sat:1.2},
+  dd:{}
+}
+// music — add inside PORTAL_ROUTES in index.html:
+  liquidsmear: {fbWarp:"bass", glow:"beat", fbHue:"mid", fbDecay:"level"},
+// engine v2 routing (bipolar depth, shape flow|hit|step) — for the v2 engine:
+  liquidsmear: {fbWarp:{sig:"bass", depth:.4, shape:"flow"}, glow:{sig:"beat", depth:.4, shape:"hit"}, fbHue:{sig:"mid", depth:.25, shape:"flow"}, fbDecay:{sig:"level", depth:.1, shape:"flow"}},
+// ──────────────────────────────────────────────
+{
+  id:"kaleidoecho", name:"Kaleido Echo", note:"a single wandering spark, folded six ways, remembered", mode:"preset",
+  scene:`
+// KALEIDO ECHO — one spark orbits. Kaleidoscope folds it into six,
+// negative Tunnel Push pulls the ghosts INWARD, Swirl spins the
+// memory: a mandala that draws itself and swallows itself.
+vec3 scene(vec2 p, float t){
+  vec2 c = vec2(sin(t*0.7) + 0.3*sin(t*2.3), cos(t*0.5) + 0.3*cos(t*1.9))*0.4;
+  float d = length(p - c);
+  vec3 col = spectral(t*0.04 + uHue) * exp(-d*d*140.0) * 2.2;
+  col += vec3(1.0) * exp(-d*d*600.0) * 0.8;
+  return col;
+}
+`,
+  d:{...D0, symmetry:6, fbAmt:.92, fbDecay:.975, fbZoom:-.5, fbRot:.8, chroma:.4, glow:.5, grain:.15, vignette:.4, speed:.9},
+  dd:{}
+}
+// music — add inside PORTAL_ROUTES in index.html:
+  kaleidoecho: {fbRot:"bass", fbZoom:"beat", glow:"beat", chroma:"treble"},
+// engine v2 routing (bipolar depth, shape flow|hit|step) — for the v2 engine:
+  kaleidoecho: {fbRot:{sig:"bass", depth:.35, shape:"flow"}, fbZoom:{sig:"beat", depth:-.4, shape:"hit"}, glow:{sig:"beat", depth:.35, shape:"hit"}, chroma:{sig:"treble", depth:.25, shape:"flow"}},
+// ──────────────────────────────────────────────
+{
+  id:"emberrain", name:"Ember Rain", note:"rising sparks; trails turn them into ribbons of fire", mode:"preset",
+  scene:`
+// EMBER RAIN — sparse embers rise on a grid of hashes. With
+// Persistence high their motion writes ribbons; Liquid makes the
+// ribbons waver like heat. Try Ghost Hue ~.3 for spectral smoke.
+vec3 scene(vec2 p, float t){
+  vec2 g = vec2(p.x*6.0, p.y*3.0 - t*0.9*uFlow);
+  vec2 id = floor(g);
+  vec2 f = fract(g) - 0.5;
+  float h = hash(id);
+  vec2 off = (vec2(hash(id + 1.7), hash(id + 3.1)) - 0.5)*0.6;
+  float d = length(f - off);
+  float on = step(0.75, h);
+  vec3 col = mix(vec3(1.0, 0.45, 0.1), vec3(1.0, 0.85, 0.3), hash(id + 5.0)) * exp(-d*d*180.0) * on * 2.0;
+  return col;
+}
+`,
+  d:{...D0, fbAmt:.9, fbDecay:.97, fbWarp:.8, fbZoom:0, speed:1, flow:1, glow:.35, grain:.2, vignette:.4, sat:1.15},
+  dd:{}
+}
+// music — add inside PORTAL_ROUTES in index.html:
+  emberrain: {glow:"beat", fbWarp:"bass", fbHue:"treble", flow:"mid"},
+// engine v2 routing (bipolar depth, shape flow|hit|step) — for the v2 engine:
+  emberrain: {glow:{sig:"beat", depth:.4, shape:"hit"}, fbWarp:{sig:"bass", depth:.35, shape:"flow"}, fbHue:{sig:"treble", depth:.2, shape:"flow"}, flow:{sig:"mid", depth:.2, shape:"flow"}},
