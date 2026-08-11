@@ -2292,10 +2292,44 @@ function genThumbs(){                      // real canvas snapshots, one per por
   g2.texParameteri(g2.TEXTURE_2D,g2.TEXTURE_WRAP_S,g2.CLAMP_TO_EDGE);
   g2.texParameteri(g2.TEXTURE_2D,g2.TEXTURE_WRAP_T,g2.CLAMP_TO_EDGE);
   const list=PRESETS.filter(pp=>pp.mode!=="free");
-  let i=0;
+  const setThumb=(id,url)=>{
+    thumbs[id]=url;
+    const img=chipsEl.querySelector('.chip[data-id="'+id+'"] .th');
+    if(img) img.src=url;
+  };
+  const tileThumb=(pr,label)=>{             // never leave a card blank
+    const c2=document.createElement("canvas"); c2.width=210; c2.height=150;
+    const x=c2.getContext("2d");
+    x.fillStyle="#0a0a12"; x.fillRect(0,0,210,150);
+    const grd=x.createRadialGradient(105,75,8,105,75,110);
+    grd.addColorStop(0,"#2c2c44"); grd.addColorStop(1,"#0a0a12");
+    x.fillStyle=grd; x.fillRect(0,0,210,150);
+    x.fillStyle="#9a9ab8"; x.font="11px monospace"; x.textAlign="center";
+    x.fillText(label||pr.name,105,80);
+    setThumb(pr.id,c2.toDataURL("image/jpeg",.82));
+  };
+  const mediaThumb=async(pr)=>{             // media portals: show the actual footage
+    try{
+      let blob=null;
+      try{ const r=await fetch(pr.media); if(r.ok) blob=await r.blob(); }catch(e){}
+      if(!blob) blob=await mediaIdbGet(pr.id);
+      if(!blob){ tileThumb(pr,"\u25b8 "+pr.name+" \u2014 drop footage"); return; }
+      const bm=await createImageBitmap(blob);
+      const c2=document.createElement("canvas"); c2.width=210; c2.height=150;
+      const x=c2.getContext("2d");
+      const sc=Math.max(210/bm.width,150/bm.height);
+      x.drawImage(bm,(210-bm.width*sc)/2,(150-bm.height*sc)/2,bm.width*sc,bm.height*sc);
+      bm.close();
+      setThumb(pr.id,c2.toDataURL("image/jpeg",.82));
+    }catch(e){ tileThumb(pr); }
+  };
+  list.filter(pp=>pp.mode==="media").forEach(pp=>mediaThumb(pp));   // async + cheap: never
+  let i=0;                                                           // stuck behind slow compiles
   (function one(){
     if(i>=list.length) return;
     const pr=list[i++];
+    if(pr.mode==="media"){ setTimeout(one,70); return; }
+    let made=false;
     try{
       const src=headerFor(uniformKeysForMode(pr.mode))+GLSL_COMMON+GLSL_STARFIELD+pr.scene+"\n"+GLSL_POST+APP_MAIN;
       const vs=g2.createShader(g2.VERTEX_SHADER); g2.shaderSource(vs,vsrc); g2.compileShader(vs);
@@ -2317,13 +2351,13 @@ function genThumbs(){                      // real canvas snapshots, one per por
         g2.activeTexture(g2.TEXTURE0); g2.bindTexture(g2.TEXTURE_2D,pt);
         const lp=g2.getUniformLocation(pg,"uPaint"); if(lp) g2.uniform1i(lp,0);
         g2.drawArrays(g2.TRIANGLES,0,3);
-        thumbs[pr.id]=tc.toDataURL("image/jpeg",.82);
-        const img=chipsEl.querySelector('.chip[data-id="'+pr.id+'"] .th');
-        if(img) img.src=thumbs[pr.id];
+        setThumb(pr.id, tc.toDataURL("image/jpeg",.82));
+        made=true;
         g2.deleteProgram(pg);
       }
       g2.deleteShader(vs); g2.deleteShader(fsh);
     }catch(e){}
+    if(!made) tileThumb(pr);               // compile failed: labeled tile, not a hole
     setTimeout(one, 70);
   })();
 }
