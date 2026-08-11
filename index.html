@@ -2511,7 +2511,7 @@ function genThumbs(){                      // real canvas snapshots, one per por
         g2.viewport(0,0,210,150);
         const u1=(n,v)=>{const l=g2.getUniformLocation(pg,n); if(l) g2.uniform1f(l,v);};
         const l2=g2.getUniformLocation(pg,"uRes"); if(l2) g2.uniform2f(l2,210,150);
-        u1("uTime",5.0);
+        // some portals are dark at any single instant — try a few, keep the brightest
         const lm=g2.getUniformLocation(pg,"uMouse"); if(lm) g2.uniform2f(lm,0,0);
         const lt=g2.getUniformLocation(pg,"uTap"); if(lt) g2.uniform3f(lt,0,0,-99);
         const lr=g2.getUniformLocation(pg,"uRipplePts[0]"); if(lr) g2.uniform3fv(lr,new Float32Array(24).fill(-999));
@@ -2519,8 +2519,20 @@ function genThumbs(){                      // real canvas snapshots, one per por
         for(const c of CTLS) if(c.u && pr.d[c.k]!=null) u1(c.u, pr.d[c.k]);
         g2.activeTexture(g2.TEXTURE0); g2.bindTexture(g2.TEXTURE_2D,pt);
         const lp=g2.getUniformLocation(pg,"uPaint"); if(lp) g2.uniform1i(lp,0);
-        g2.drawArrays(g2.TRIANGLES,0,3);
-        setThumb(pr.id, tc.toDataURL("image/jpeg",.82));
+        let best=null, bestLum=-1;
+        const pxb=new Uint8Array(4);
+        for(const T of [5.0, 13.0, 27.0]){
+          u1("uTime",T);
+          g2.drawArrays(g2.TRIANGLES,0,3);
+          let lum=0;
+          for(let sx=0;sx<4;sx++) for(let sy=0;sy<4;sy++){
+            g2.readPixels(26+sx*52, 19+sy*37, 1, 1, g2.RGBA, g2.UNSIGNED_BYTE, pxb);
+            lum+=pxb[0]+pxb[1]+pxb[2];
+          }
+          if(lum>bestLum){ bestLum=lum; best=tc.toDataURL("image/jpeg",.82); }
+          if(bestLum>1500) break;
+        }
+        setThumb(pr.id, best);
         made=true;
         g2.deleteProgram(pg);
       }
@@ -3036,7 +3048,16 @@ document.getElementById("bCode").onclick=()=>{
 document.getElementById("bCloseGlass").onclick=()=>glassEl.classList.remove("open");
 
 document.getElementById("bRun").onclick=()=>{
-  const src=codeArea.value;
+  let src=codeArea.value;
+  // a lab EXPORT block pasted whole? pull the shader out of the packaging
+  if(/\bscene\s*:\s*`/.test(src) && /\bid\s*:/.test(src)){
+    const m=src.match(/scene\s*:\s*`([\s\S]*?)`/);
+    if(m){
+      src = headerFor(uniformKeysForMode(cur.mode)) + GLSL_COMMON + GLSL_STARFIELD + GLSL_EXTRAS + m[1] + "\n" + GLSL_POST + APP_MAIN;
+      codeArea.value = src;
+      say("That was a lab export block \u2014 I pulled the shader out of the packaging for you \u266a");
+    }
+  }
   try{
     const keys=uniformKeysForMode(cur.mode);
     const built=buildProgram(src, keys);      // throws with compiler log on error
