@@ -1493,6 +1493,7 @@ function renderDims(tierW, tierH){
 
 /* -------- sizing -------- */
 function fitCanvas(){
+  if(typeof recorder!=="undefined" && recorder) return;   // dimensions are locked mid-take
   const dprCap = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 1.5 : 2;
   const dpr = Math.min(window.devicePixelRatio||1, dprCap);
   let w = Math.round(canvas.clientWidth*dpr), h = Math.round(canvas.clientHeight*dpr);
@@ -1753,7 +1754,7 @@ async function musicStart(devId){
     say("Mic blocked \u2014 allow microphone access and try again");
   }
 }
-async function musicStartFile(file){    // Phase 2: play a track inside the app
+async function musicStartFile(file, auto){    // auto=false: load paused, start via ▶ or Rec Live
   try{
     music.ctx = music.ctx || new (window.AudioContext||window.webkitAudioContext)();
     await music.ctx.resume();
@@ -1774,18 +1775,21 @@ async function musicStartFile(file){    // Phase 2: play a track inside the app
     music.audioEl.onended = ()=>{
       if(music.queue.length > 1){
         music.qi = (music.qi + 1) % music.queue.length;
-        musicStartFile(music.queue[music.qi]);
+        musicStartFile(music.queue[music.qi], true);
       }
     };
     music.audioEl.src = URL.createObjectURL(file);
-    await music.audioEl.play();
+    if(auto){ await music.audioEl.play(); }
+    else { try{ music.audioEl.pause(); }catch(e){} }
     music.inputKind="FILE";
     music.on = true;
     if(!Object.keys(musicRoutes).length) autoRoute();
     setMusicUI(true);
     buildSliders();
     const pos = music.queue.length > 1 ? (music.qi+1)+"/"+music.queue.length+" \u00b7 " : "";
-    say("Playing "+pos+file.name+" \u266a");
+    say(auto ? "Playing "+pos+file.name+" \u266a"
+             : "Loaded "+pos+file.name+" \u2014 press \u25b6 Play, or Rec Live to start in sync");
+    buildSliders();
   }catch(err){ say("Couldn\u2019t play that file \u2014 try an MP3, M4A or WAV"); }
 }
 async function musicStartTab(){           // capture a Chrome tab's sound directly
@@ -2624,7 +2628,10 @@ function buildSliders(){
         +'<button data-in="files">FILES</button><button class="nx" data-in="next" title="Next track">\u25b8</button></div>'
         +'<input id="musFileIn" type="file" accept="audio/*" multiple style="display:none">'
         +'<button class="slab" id="bRouting"><span>ROUTING \u2014 <b id="slabTxt">OFF</b></span><span class="st" id="slabSt">\u25cb</span></button>'
-        +'<div class="musRow2"><button class="tert" id="bAutoRoute">AUTO-ROUTE</button></div>';
+        +'<div class="musRow2"><button class="tert" id="bAutoRoute">AUTO-ROUTE</button></div>'
+        +'<div class="musRow2" id="fileTransport" style="display:none"><button class="tert" id="mfPlay">\u25b6 PLAY</button>'
+        +'<button class="tert" id="mfRestart" title="Back to the top">\u23ee</button>'
+        +'<span class="bpm" id="mfName"></span></div>';
       body.appendChild(head);
       const fIn=head.querySelector("#musFileIn");
       head.querySelector("#musSeg").onclick=(e)=>{
@@ -2633,12 +2640,12 @@ function buildSliders(){
         else if(t==="tab") musicStartTab();
         else if(t==="files") fIn.click();
         else if(t==="next"){
-          if(music.queue.length>1){ music.qi=(music.qi+1)%music.queue.length; musicStartFile(music.queue[music.qi]); }
+          if(music.queue.length>1){ music.qi=(music.qi+1)%music.queue.length; musicStartFile(music.queue[music.qi], true); }
           else say("Pick several files to make a set");
         }
       };
       fIn.onchange=()=>{ const fs=[...fIn.files]; if(!fs.length) return;
-        music.queue=fs; music.qi=0; musicStartFile(fs[0]); };
+        music.queue=fs; music.qi=0; musicStartFile(fs[0], false); };
       const slab=head.querySelector("#bRouting");
       slab.classList.toggle("on",musicRoutingUI);
       slab.querySelector("#slabTxt").textContent=musicRoutingUI?"MUSIC DRIVES THE SLIDERS":"OFF";
@@ -2652,6 +2659,24 @@ function buildSliders(){
         autoRoute(); musicRoutesByPortal[cur.id]={...musicRoutes};
         buildSliders(); say("Routed for "+cur.name);
       };
+      const ft=head.querySelector("#fileTransport");
+      if(ft){
+        const pb=ft.querySelector("#mfPlay");
+        const updT=()=>{
+          ft.style.display=(music.inputKind==="FILE"&&music.audioEl)?"flex":"none";
+          if(music.audioEl) pb.textContent=music.audioEl.paused?"\u25b6 PLAY":"\u275a\u275a PAUSE";
+          const nm=ft.querySelector("#mfName");
+          if(nm&&music.queue&&music.queue[music.qi]) nm.textContent=music.queue[music.qi].name;
+        };
+        updT();
+        pb.onclick=()=>{
+          if(!music.audioEl) return;
+          if(music.audioEl.paused){ const p=music.audioEl.play(); if(p&&p.catch)p.catch(()=>{}); }
+          else music.audioEl.pause();
+          updT();
+        };
+        ft.querySelector("#mfRestart").onclick=()=>{ if(music.audioEl) music.audioEl.currentTime=0; };
+      }
       syncSeg();
     }
     if(LESSONS[g]){
@@ -2899,6 +2924,15 @@ function pickMime(){
 bRec.onclick=()=>{
   if(recorder){ recorder.stop(); return; }
   if(!canvas.captureStream || !window.MediaRecorder){ say("Recording not supported here"); return; }
+  // stabilize the take: fix the canvas at \u22641080p for the whole recording
+  // (resizing the frame source mid-take is what stalls video encoders)
+  { const bud=1920*1080; const w0=canvas.width, h0=canvas.height;
+    if(w0*h0>bud){ const sc=Math.sqrt(bud/(w0*h0));
+      canvas.width=Math.round(w0*sc); canvas.height=Math.round(h0*sc); } }
+  if(music.on && music.inputKind==="FILE" && music.audioEl && music.audioEl.paused){
+    music.audioEl.currentTime=0;
+    const p=music.audioEl.play(); if(p&&p.catch)p.catch(()=>{});
+  }
   let mime=pickMime();
   const rst=canvas.captureStream(60);
   if(music.on && music.recDest){          // bake the actual music into the clip
@@ -2909,7 +2943,7 @@ bRec.onclick=()=>{
         mime="video/webm;codecs=vp9,opus";
     }
   }
-  recorder=new MediaRecorder(rst, mime?{mimeType:mime,videoBitsPerSecond:16e6}:{videoBitsPerSecond:16e6});
+  recorder=new MediaRecorder(rst, mime?{mimeType:mime,videoBitsPerSecond:Math.min(16e6,Math.round(canvas.width*canvas.height*8))}:{videoBitsPerSecond:Math.min(16e6,Math.round(canvas.width*canvas.height*8))});
   chunks=[];
   recorder.ondataavailable=e=>{ if(e.data.size) chunks.push(e.data); };
   recorder.onstop=()=>{
