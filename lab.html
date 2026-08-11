@@ -315,7 +315,7 @@
 <div id="grid"></div>
 
 <footer>
-  <span id="verstamp">Trip Out — Shader Lab <b style="font-weight:400;color:var(--ink)">v8 · feedback engine</b> · stored locally in this browser</span>
+  <span id="verstamp">Trip Out — Shader Lab <b style="font-weight:400;color:var(--ink)">v9 · feedback + extras</b> · stored locally in this browser</span>
   <span>winners paste into the main app unchanged — scene, defaults and routing</span>
 </footer>
 
@@ -764,7 +764,42 @@ void main(){
   gl_FragColor = vec4(col, 1.0);
 }`;
 
-const PREAMBLE = GLSL_HEADER + GLSL_COMMON + GLSL_STARFIELD;
+/* RIFF EXTRAS — wider vocabulary so builds stop sounding like the base kit.
+   vnoi = voronoi cells (cracked glass, dapples) · ridge = electric filaments
+   curl = divergence-free flow (smoke, rivers) · pal3 = your OWN 3-color ramp
+   post3 = print posterize · polarRep = n-wedge repeat without mirroring */
+const GLSL_EXTRAS = `
+vec2 hash2(vec2 p){ return vec2(hash(p), hash(p + 17.17)); }
+float vnoi(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  float d = 8.0;
+  for(int y = -1; y <= 1; y++) for(int x = -1; x <= 1; x++){
+    vec2 g = vec2(float(x), float(y));
+    vec2 o = hash2(i + g);
+    d = min(d, length(g + o - f));
+  }
+  return d;
+}
+float ridge(vec2 p){ return 1.0 - abs(2.0*fbm(p) - 1.0); }
+vec2 curl(vec2 p){
+  float e = 0.02;
+  float a = fbm(p + vec2(0.0, e)) - fbm(p - vec2(0.0, e));
+  float b = fbm(p + vec2(e, 0.0)) - fbm(p - vec2(e, 0.0));
+  return vec2(a, -b)/(2.0*e);
+}
+vec3 pal3(float t, vec3 a, vec3 b, vec3 c){
+  float u = fract(t)*3.0;
+  return u < 1.0 ? mix(a, b, u) : u < 2.0 ? mix(b, c, u - 1.0) : mix(c, a, u - 2.0);
+}
+float post3(float v, float n){ return floor(clamp(v, 0.0, 1.0)*n)/n; }
+vec2 polarRep(vec2 p, float n){
+  float a = atan(p.y, p.x), r = length(p);
+  float seg = 6.28318/n;
+  a = mod(a + seg*0.5, seg) - seg*0.5;
+  return vec2(cos(a), sin(a))*r;
+}
+`;
+const PREAMBLE = GLSL_HEADER + GLSL_COMMON + GLSL_STARFIELD + GLSL_EXTRAS;
 const PREAMBLE_LINES = PREAMBLE.split('\n').length;
 const VS_SRC = 'attribute vec2 aPos; void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }';
 function fullSource(sceneSrc){ return PREAMBLE + '\n' + sceneSrc + '\n' + GLSL_POST + APP_MAIN; }
@@ -810,10 +845,7 @@ function createGL(canvas){
 function ensureFb(ctx, w, h){
   const gl = ctx.gl;
   if(ctx.fb && ctx.fb.w === w && ctx.fb.h === h) return;
-  if(ctx.fb){
-    for(const t of ctx.fb.tex) gl.deleteTexture(t);
-    for(const f of ctx.fb.fbo) gl.deleteFramebuffer(f);
-  }
+  const old = ctx.fb;   // keep the ghosts alive across a resize (auto-quality steps!)
   const tex = [], fbo = [];
   for(let i = 0; i < 2; i++){
     const t = gl.createTexture();
@@ -829,8 +861,24 @@ function ensureFb(ctx, w, h){
     gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
     tex.push(t); fbo.push(f);
   }
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   ctx.fb = { w, h, tex, fbo, read:0 };
+  if(old){
+    // rescale the old ghost image into the new read buffer, then free the old
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo[0]);
+    gl.viewport(0, 0, w, h);
+    gl.useProgram(ctx.blit.prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, ctx.buf);
+    gl.enableVertexAttribArray(ctx.blit.aPos);
+    gl.vertexAttribPointer(ctx.blit.aPos, 2, gl.FLOAT, false, 0, 0);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, old.tex[old.read]);
+    gl.uniform1i(ctx.blit.uT, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    for(const t of old.tex) gl.deleteTexture(t);
+    for(const f of old.fbo) gl.deleteFramebuffer(f);
+    ctx.fb.read = 0;
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 }
 
 function compileInto(ctx, sceneSrc){
@@ -1676,6 +1724,8 @@ function exportText(exp){
     .filter(([k, r]) => routeEligible(k) && ROUTE_SIGS.includes(r.sig))
     .map(([k, r]) => `${k}:{sig:"${r.sig}", depth:${fmtNum(r.depth)}, shape:"${r.shape}"}`)
     .join(', ');
+  const xNote = /\b(vnoi|ridge|curl|pal3|post3|polarRep|hash2)\s*\(/.test(exp.scene)
+    ? `\n// EXTRAS — uses the lab's GLSL_EXTRAS vocabulary; ship that block with the app patch` : '';
   const fbNote = (exp.d && (exp.d.fbAmt || 0) > 0.001)
     ? `\n// FEEDBACK — uses the lab feedback engine (uPrev ping-pong); needs the feedback patch in index.html` : '';
   const mediaNote = exp.mode === 'media'
@@ -1687,7 +1737,7 @@ ${exp.scene.trim()}
 \`,
   d:{...D0${over.length ? ', ' + over.join(', ') : ''}},
   dd:{}
-}${mediaNote}${fbNote}
+}${mediaNote}${fbNote}${xNote}
 // music — add inside PORTAL_ROUTES in index.html:
   ${exp.id}: {${routeStr}},
 // engine v2 routing (bipolar depth, shape flow|hit|step) — for the v2 engine:
@@ -2522,7 +2572,7 @@ window.__labSelfTest = function(){
 window.__lab = { music, metro, scrub, exps: () => exps, effectiveLab, startMetro, startScrub, fireBeat, D0,
                  getEngine: () => ENGINE, setEngine, ensureRoutes2 };
 
-console.log('TRIP OUT LAB v8 — feedback engine (MilkDrop loop) + projector-safe · engines v1/v2 · ' + (window.ImageDecoder ? 'GIF decode OK' : 'no ImageDecoder (GIFs show first frame)'));
+console.log('TRIP OUT LAB v9 — feedback (resize-safe) + riff extras · engines v1/v2 · ' + (window.ImageDecoder ? 'GIF decode OK' : 'no ImageDecoder (GIFs show first frame)'));
 try{ const sv = storage.getItem('tripout-lab-engine'); if(sv === 'v1' || sv === 'v2') ENGINE = sv; }catch(e){}
 armBigcvLoss();
 loadStore();
