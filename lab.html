@@ -315,7 +315,7 @@
 <div id="grid"></div>
 
 <footer>
-  <span id="verstamp">Trip Out — Shader Lab <b style="font-weight:400;color:var(--ink)">v9 · feedback + extras</b> · stored locally in this browser</span>
+  <span id="verstamp">Trip Out — Shader Lab <b style="font-weight:400;color:var(--ink)">v10 · wander</b> · stored locally in this browser</span>
   <span>winners paste into the main app unchanged — scene, defaults and routing</span>
 </footer>
 
@@ -356,6 +356,7 @@
       <div id="musicSliders"></div>
       <div class="btnrow" style="margin-top:8px">
         <button id="btnAutoRoute" class="ghost">Auto-route</button>
+        <button id="btnPin" class="ghost" title="Adopt where the wander has taken you — sliders absorb the journey, and it continues from here">Pin this moment</button>
       </div>
       <div class="mhint" style="margin-top:7px" id="routeHint">tap a &#9834; chip on any slider to wire it: B M T H &hearts; &mdash; in V2 each route also gets a depth (&plusmn;) and a shape: FLOW follows the signal, HIT fires an envelope on its onsets, STEP jumps on every beat. red ticks show what the music is doing live.</div>
     </div>
@@ -415,6 +416,7 @@
 const CTLS = [
   {k:"musicAmt", u:"",        label:"Amount",      min:0,max:1,   step:.01, group:"Music", jsOnly:true, v1Only:true},
   {k:"musicBreath",u:"",      label:"Breath",      min:0,max:1,   step:.01, group:"Music", jsOnly:true, v2Only:true},
+  {k:"musicWander",u:"",      label:"Wander",      min:0,max:1,   step:.01, group:"Music", jsOnly:true, v2Only:true},
   {k:"musicPunch",u:"",       label:"Punch",       min:0,max:1.5, step:.01, group:"Music", jsOnly:true, v2Only:true},
   {k:"musicSens",u:"",        label:"Sensitivity", min:.3,max:3,  step:.01, group:"Music", jsOnly:true},
 
@@ -471,7 +473,7 @@ const byKey = {}; CTLS.forEach(c => byKey[c.k] = c);
 const GROUP_ORDER = ["Space","Orb","Field","Light","Color","Post","Feedback","Motion"];
 
 /* shared defaults — the app's D0, restricted to preset-mode + music keys */
-const D0 = {musicAmt:.7,musicSens:1,musicBreath:.25,musicPunch:.85,orb:0,orbSpin:.3,orbHard:.7,orbCount:1,bounce:0,streak:0,stars:0,
+const D0 = {musicAmt:.7,musicSens:1,musicBreath:.25,musicWander:.35,musicPunch:.85,orb:0,orbSpin:.3,orbHard:.7,orbCount:1,bounce:0,streak:0,stars:0,
             speed:1,zoom:1,symmetry:1,warp:1,flow:1,spectrum:1,hue:0,sat:1.1,glow:.6,chroma:.8,
             sparkle:0,grain:.28,vignette:.5,
             core:0,coreSize:.4,ring:0,ringPos:.45,ringWidth:.4,horizon:0,horizonY:0,
@@ -1005,7 +1007,7 @@ const music = {
   driftT:0, phaseKick:0, phaseSm:0, tempoSm:0.6,
   cg:{bass:0,mid:0,treble:0,level:0,beat:0,harm:0},    // slow conductor copies
   lvlAvg:0.02, prevBins:null, fluxAvg:0.004, wasFAbove:false, wasAbove:false, beatTimes:[],
-  beatCount:0, deviceId:'',
+  beatCount:0, deviceId:'', wanderT:0, wanderPinT:0, wanderKick:0,
   onset:{bass:-9, mid:-9, treble:-9, harm:-9, level:-9, beat:-9},
   v2:{ floor:{bass:.02,mid:.02,treble:.02,level:.02},   // per-band rolling noise floor
        peak:{bass:.06,mid:.06,treble:.06,level:.06},    // per-band rolling loudest (~8s half-life)
@@ -1037,6 +1039,7 @@ function fireBeat(){
   music.lastBeat = simTime; music.beatPk = 1;
   music.onset.beat = simTime;
   music.beatCount++;
+  if(music.beatCount % 16 === 0) music.wanderKick += 1.2;   // phrase turn: the journey accelerates
   music.beatTimes.push(simTime);
   if(music.beatTimes.length > 9) music.beatTimes.shift();
   music.phaseKick += 0.5;              // motion turns a corner on the kick
@@ -1149,6 +1152,8 @@ function musicTick(dt){
     music.out[k] = t > o ? o + (t-o)*Math.min(1, dt*16) : o + (t-o)*Math.min(1, dt*5.5);
   }
   music.out.beat = Math.max(music.out.beat*Math.pow(0.5, dt/0.22), music.sig.beat);
+  music.wanderT += dt*(0.015 + music.cg.level*0.05) + music.wanderKick*dt*0.5;
+  music.wanderKick *= Math.pow(0.5, dt/0.8);
   // per-signal onset edges (feeds V2 "HIT" routes; works for every source incl. scrub)
   for(const k of ['bass','mid','treble','harm','level']){
     const a = music.v2.avg[k] = music.v2.avg[k] + (music.sig[k] - music.v2.avg[k])*Math.min(1, dt*1.5);
@@ -1418,6 +1423,18 @@ function effectiveV1(exp){
    - each route: bipolar depth, and a shape — FLOW (follow the smoothed
      signal), HIT (attack/decay envelope fired on that signal's onsets),
      STEP (jump to a new value on every beat; hue steps around the wheel) */
+function noise1(x){                        // smooth 1D value-noise: a walk that never retraces
+  const i = Math.floor(x), f = x - i;
+  const u = f*f*(3 - 2*f);
+  const h = n => { const v = Math.sin(n*127.1)*43758.5453; return v - Math.floor(v); };
+  return h(i) + (h(i + 1) - h(i))*u;
+}
+function wanderOff(k, c, leash){           // offset from the pinned origin — 0 right after a Pin
+  const f = 0.6 + (keyPhase(k)/6.283)*0.8;
+  const cur = noise1(music.wanderT*f*3.0 + keyPhase(k)*57.0);
+  const pin = noise1(music.wanderPinT*f*3.0 + keyPhase(k)*57.0);
+  return (c.max - c.min)*leash*0.4*(cur - pin);
+}
 function stepHash(k, n){                   // deterministic per-beat jump target
   const s = Math.sin(n*12.9898 + keyPhase(k)*7.13)*43758.5453;
   return s - Math.floor(s);
@@ -1427,8 +1444,17 @@ function effectiveV2(exp){
   if(!music.on) return base;
   const breath = base.musicBreath == null ? 0.25 : base.musicBreath;
   const punch = base.musicPunch == null ? 0.85 : base.musicPunch;
+  const wl = base.musicWander == null ? 0.35 : base.musicWander;
   const out = {...base};
   const r2 = ensureRoutes2(exp);
+  const wof = k => (wl > 0.001 && byKey[k]) ? wanderOff(k, byKey[k], wl) : 0;
+  if(wl > 0.001){                          // the journey: every home position drifts on its leash
+    for(const c of CTLS){
+      const k = c.k;
+      if(!routeEligible(k) || k === 'hue') continue;
+      out[k] = Math.min(c.max, Math.max(c.min, base[k] + wof(k)));
+    }
+  }
   const g = music.cg;
   const T = music.driftT;
   const GBAND = {Space:g.bass, Orb:g.bass, Field:(g.bass+g.mid)*0.5,
@@ -1439,7 +1465,8 @@ function effectiveV2(exp){
       const k = c.k;
       if(!routeEligible(k) || r2[k]) continue;
       if(k === 'hue'){
-        out.hue = ((base.hue + T*0.004*breath*2.8 + g.harm*0.06*breath) % 1 + 1) % 1;
+        const hw = wl > 0.001 ? (noise1(music.wanderT*1.8 + 11.3) - noise1(music.wanderPinT*1.8 + 11.3))*wl*0.3 : 0;
+        out.hue = ((base.hue + hw + T*0.004*breath*2.8 + g.harm*0.06*breath) % 1 + 1) % 1;
         continue;
       }
       const ph = keyPhase(k);
@@ -1447,7 +1474,7 @@ function effectiveV2(exp){
       const band = GBAND[c.group] !== undefined ? GBAND[c.group] : g.level;
       const amp = 0.12*breath*(0.45 + band*1.1);
       out[k] = Math.min(c.max, Math.max(c.min,
-        base[k] + (c.max-c.min)*amp*Math.sin(T*f + ph)));
+        out[k] + (c.max-c.min)*amp*Math.sin(T*f + ph)));
     }
   }
   // the honed moves — strong and legible
@@ -1460,7 +1487,7 @@ function effectiveV2(exp){
         continue;
       }
       const v = stepHash(k, music.beatCount);
-      out[k] = Math.min(c.max, Math.max(c.min, base[k] + (c.max-c.min)*depth*punch*v));
+      out[k] = Math.min(c.max, Math.max(c.min, base[k] + wof(k) + (c.max-c.min)*depth*punch*v));
       continue;
     }
     let v;
@@ -2492,6 +2519,21 @@ document.getElementById('btnReset').addEventListener('click', () => {
   const exp = curExp(); if(!exp) return;
   exp.d = {}; saveStore(); buildPanel(exp); toast('params reset');
 });
+document.getElementById('btnPin').addEventListener('click', () => {
+  const exp = curExp(); if(!exp) return;
+  const wl = P(exp).musicWander == null ? 0.35 : P(exp).musicWander;
+  if(!music.on || wl <= 0.001){ toast('nothing wandering to pin — turn music on and Wander up'); return; }
+  exp.d = exp.d || {};
+  for(const c of CTLS){
+    if(!routeEligible(c.k) || c.k === 'hue') continue;
+    exp.d[c.k] = Math.min(c.max, Math.max(c.min, P(exp)[c.k] + wanderOff(c.k, c, wl)));
+  }
+  const hw = (noise1(music.wanderT*1.8 + 11.3) - noise1(music.wanderPinT*1.8 + 11.3))*wl*0.3;
+  exp.d.hue = ((P(exp).hue + hw) % 1 + 1) % 1;
+  music.wanderPinT = music.wanderT;
+  saveStore(); buildPanel(exp);
+  toast('pinned — this is home now; the journey continues from here');
+});
 document.getElementById('btnAutoRoute').addEventListener('click', () => {
   const exp = curExp(); if(!exp) return;
   exp.routes = {...DEFAULT_ROUTES};
@@ -2572,7 +2614,7 @@ window.__labSelfTest = function(){
 window.__lab = { music, metro, scrub, exps: () => exps, effectiveLab, startMetro, startScrub, fireBeat, D0,
                  getEngine: () => ENGINE, setEngine, ensureRoutes2 };
 
-console.log('TRIP OUT LAB v9 — feedback (resize-safe) + riff extras · engines v1/v2 · ' + (window.ImageDecoder ? 'GIF decode OK' : 'no ImageDecoder (GIFs show first frame)'));
+console.log('TRIP OUT LAB v10 — wander layer (leashed evolution) · engines v1/v2 · ' + (window.ImageDecoder ? 'GIF decode OK' : 'no ImageDecoder (GIFs show first frame)'));
 try{ const sv = storage.getItem('tripout-lab-engine'); if(sv === 'v1' || sv === 'v2') ENGINE = sv; }catch(e){}
 armBigcvLoss();
 loadStore();

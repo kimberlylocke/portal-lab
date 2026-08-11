@@ -614,6 +614,7 @@ const CTLS = [
   {k:"driftSpd",u:"",         label:"Drift Speed", min:1,max:10,  step:.1,  group:"Motion", jsOnly:true},
   {k:"driftAmt",u:"",         label:"Drift Depth", min:0,max:1,   step:.01, group:"Motion", jsOnly:true},
   {k:"musicBreath",u:"",      label:"Breath",      min:0,max:1,   step:.01, group:"Music", jsOnly:true},
+  {k:"musicWander",u:"",      label:"Wander",      min:0,max:1,   step:.01, group:"Music", jsOnly:true},
   {k:"musicPunch",u:"",       label:"Punch",       min:0,max:1.5, step:.01, group:"Music", jsOnly:true},
   {k:"musicSens",u:"",        label:"Sensitivity", min:.3,max:3,  step:.01, group:"Music", jsOnly:true},
 
@@ -726,7 +727,7 @@ const LESSONS = {
 };
 
 /* -------- shared defaults -------- */
-const D0 = {musicAmt:.7,musicBreath:.25,musicPunch:.85,musicSens:1,beatRipples:0,orb:0,orbSpin:.3,orbHard:.7,orbCount:1,bounce:0,streak:0,stars:0,brushSize:.16,smearStr:1.2,persist:1,pspread:.12,pflow:.1,speed:1,zoom:1,symmetry:1,warp:1,flow:1,spectrum:1,hue:0,sat:1.1,glow:.6,chroma:.8,sparkle:0,grain:.28,vignette:.5,driftSpd:3,driftAmt:.5,
+const D0 = {musicAmt:.7,musicBreath:.25,musicWander:.35,musicPunch:.85,musicSens:1,beatRipples:0,orb:0,orbSpin:.3,orbHard:.7,orbCount:1,bounce:0,streak:0,stars:0,brushSize:.16,smearStr:1.2,persist:1,pspread:.12,pflow:.1,speed:1,zoom:1,symmetry:1,warp:1,flow:1,spectrum:1,hue:0,sat:1.1,glow:.6,chroma:.8,sparkle:0,grain:.28,vignette:.5,driftSpd:3,driftAmt:.5,
             core:0,coreSize:.4,ring:0,ringPos:.45,ringWidth:.4,horizon:0,horizonY:0,
             tube:0,fibers:0,bgHue:.6,bgLight:0,rot:0,twist:0,mirx:0,miry:0,
             fbAmt:0,fbDecay:.96,fbZoom:.6,fbRot:0,fbWarp:0,fbHue:0};
@@ -1397,8 +1398,17 @@ function effective(){
     // Breath scales the ambient conductor, Punch scales routes + uBeat/uAud
     const breath = vals.musicBreath==null?0.25:vals.musicBreath;
     const punch = vals.musicPunch==null?0.85:vals.musicPunch;
+    const wl = vals.musicWander==null?0.35:vals.musicWander;
     const out = {...vals};
     const r2 = ensureRoutes2();
+    const wof = k => (wl > 0.001 && byKey[k]) ? wanderOff(k, byKey[k], wl) : 0;
+    if(wl > 0.001){                        // the journey: every home position drifts on its leash
+      for(const k of uiKeysForMode(cur.mode)){
+        if(!routeEligible(k) || k === "hue") continue;
+        const c = byKey[k];
+        out[k] = Math.min(c.max, Math.max(c.min, vals[k] + wof(k)));
+      }
+    }
     const g = music.cg;                      // slow copies: motion stays liquid
     const T = music.driftT;                  // musical clock: energy sets the tempo
     const GBAND = {Space:g.bass, Orb:g.bass, Field:(g.bass+g.mid)*0.5,
@@ -1408,7 +1418,8 @@ function effective(){
         if(!routeEligible(k) || r2[k]) continue;
         const c = byKey[k];
         if(k==="hue"){                       // harmonies bend the color wheel
-          out.hue = ((vals.hue + T*0.004*breath*2.8 + g.harm*0.06*breath) % 1 + 1) % 1;
+          const hw = wl > 0.001 ? (noise1(music.wanderT*1.8 + 11.3) - noise1(music.wanderPinT*1.8 + 11.3))*wl*0.3 : 0;
+          out.hue = ((vals.hue + hw + T*0.004*breath*2.8 + g.harm*0.06*breath) % 1 + 1) % 1;
           continue;
         }
         const ph = keyPhase(k);
@@ -1416,7 +1427,7 @@ function effective(){
         const band = GBAND[c.group]!==undefined ? GBAND[c.group] : g.level;
         const amp = 0.12*breath*(0.45 + band*1.1);
         out[k] = Math.min(c.max, Math.max(c.min,
-          vals[k] + (c.max-c.min)*amp*Math.sin(T*f + ph)));
+          out[k] + (c.max-c.min)*amp*Math.sin(T*f + ph)));
       }
     }
     for(const k in r2){                      // the honed moves — strong and legible
@@ -1428,7 +1439,7 @@ function effective(){
           continue;
         }
         const v = stepHash(k, music.beatCount);
-        out[k] = Math.min(c.max, Math.max(c.min, vals[k] + (c.max-c.min)*rr.depth*punch*v));
+        out[k] = Math.min(c.max, Math.max(c.min, vals[k] + wof(k) + (c.max-c.min)*rr.depth*punch*v));
         continue;
       }
       let v;
@@ -1611,7 +1622,7 @@ const music = {
   cg:{bass:0,mid:0,treble:0,level:0,beat:0,harm:0},  // slow copies: fluid, never jittery
   lvlAvg:0.02, quietT:0, quietWarned:-99, wasAbove:false, wasLvlAbove:false,
   prevBins:null, fluxAvg:0.004, wasFAbove:false, queue:[], qi:0,
-  beatCount:0,
+  beatCount:0, wanderT:0, wanderPinT:0, wanderKick:0,
   onset:{bass:-9, mid:-9, treble:-9, harm:-9, level:-9, beat:-9},
   v2:{ floor:{bass:.02,mid:.02,treble:.02,level:.02},
        peak:{bass:.06,mid:.06,treble:.06,level:.06},
@@ -1632,6 +1643,18 @@ function ensureRoutes2(){              // derive/refresh v2 routing from the v1 
   }
   for(const k in musicRoutes2) if(!musicRoutes[k]) delete musicRoutes2[k];
   return musicRoutes2;
+}
+function noise1(x){                    // smooth 1D value-noise: a walk that never retraces
+  const i = Math.floor(x), f = x - i;
+  const u = f*f*(3 - 2*f);
+  const h = n => { const v = Math.sin(n*127.1)*43758.5453; return v - Math.floor(v); };
+  return h(i) + (h(i + 1) - h(i))*u;
+}
+function wanderOff(k, c, leash){       // offset from the pinned origin — 0 right after a Pin
+  const f = 0.6 + (keyPhase(k)/6.283)*0.8;
+  const cur = noise1(music.wanderT*f*3.0 + keyPhase(k)*57.0);
+  const pin = noise1(music.wanderPinT*f*3.0 + keyPhase(k)*57.0);
+  return (c.max - c.min)*leash*0.4*(cur - pin);
 }
 function stepHash(k, n){               // deterministic per-beat jump target
   const v = Math.sin(n*12.9898 + keyPhase(k)*7.13)*43758.5453;
@@ -1906,6 +1929,7 @@ function musicUpdate(dt){
   if(onset && simTime-music.lastBeat > 0.34){
     music.lastBeat=simTime; music.beatPk=1;
     music.beatCount++; music.onset.beat = simTime;
+    if(music.beatCount % 16 === 0) music.wanderKick += 1.2;   // phrase turn
     music.beatTimes=music.beatTimes||[]; music.beatTimes.push(simTime);
     if(music.beatTimes.length>9) music.beatTimes.shift();
     music.phaseKick += 0.5;                // motion turns a corner on the kick
@@ -1965,6 +1989,8 @@ function musicUpdate(dt){
     music.out[k] = t>o ? o+(t-o)*Math.min(1,dt*16) : o+(t-o)*Math.min(1,dt*5.5);
   }
   music.out.beat = Math.max(music.out.beat*Math.pow(0.5, dt/0.22), music.sig.beat);
+  music.wanderT += dt*(0.015 + music.cg.level*0.05) + music.wanderKick*dt*0.5;
+  music.wanderKick *= Math.pow(0.5, dt/0.8);
   const mm=document.getElementById("musMeters");        // live meters
   if(mm){
     const v=[music.sig.bass,music.sig.mid,music.sig.treble,music.sig.harm,music.sig.beat];
@@ -2628,7 +2654,8 @@ function buildSliders(){
         +'<button data-in="files">FILES</button><button class="nx" data-in="next" title="Next track">\u25b8</button></div>'
         +'<input id="musFileIn" type="file" accept="audio/*" multiple style="display:none">'
         +'<button class="slab" id="bRouting"><span>ROUTING \u2014 <b id="slabTxt">OFF</b></span><span class="st" id="slabSt">\u25cb</span></button>'
-        +'<div class="musRow2"><button class="tert" id="bAutoRoute">AUTO-ROUTE</button></div>'
+        +'<div class="musRow2"><button class="tert" id="bAutoRoute">AUTO-ROUTE</button>'
+        +'<button class="tert" id="bPin" title="Adopt where the wander has taken you \u2014 sliders absorb the journey, and it continues from here">PIN THIS MOMENT</button></div>'
         +'<div class="musRow2" id="fileTransport" style="display:none"><button class="tert" id="mfPlay">\u25b6 PLAY</button>'
         +'<button class="tert" id="mfRestart" title="Back to the top">\u23ee</button>'
         +'<span class="bpm" id="mfName"></span></div>';
@@ -2658,6 +2685,21 @@ function buildSliders(){
       head.querySelector("#bAutoRoute").onclick=()=>{
         autoRoute(); musicRoutesByPortal[cur.id]={...musicRoutes};
         buildSliders(); say("Routed for "+cur.name);
+      };
+      const pin=head.querySelector("#bPin");
+      if(pin) pin.onclick=()=>{
+        const wl = vals.musicWander==null?0.35:vals.musicWander;
+        if(!music.on || wl <= 0.001){ say("Nothing wandering to pin \u2014 music on, Wander up"); return; }
+        for(const k of uiKeysForMode(cur.mode)){
+          if(!routeEligible(k) || k === "hue") continue;
+          const c = byKey[k];
+          vals[k] = Math.min(c.max, Math.max(c.min, vals[k] + wanderOff(k, c, wl)));
+        }
+        const hw = (noise1(music.wanderT*1.8 + 11.3) - noise1(music.wanderPinT*1.8 + 11.3))*wl*0.3;
+        vals.hue = ((vals.hue + hw) % 1 + 1) % 1;
+        music.wanderPinT = music.wanderT;
+        buildSliders();
+        say("Pinned \u2014 this is home now; the journey continues from here");
       };
       const ft=head.querySelector("#fileTransport");
       if(ft){
