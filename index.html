@@ -101,6 +101,11 @@
     text-transform:uppercase;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .chip.on .th{border-color:var(--ink)}
   .chip.on .cap{color:var(--ink)}
+  #myLib{display:flex;flex-direction:column;gap:6px}
+  .libRow{display:flex;align-items:center;gap:8px;border:1px solid var(--rule);padding:8px 10px}
+  .libRow .ln{flex:1;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    cursor:pointer;text-align:left;background:none;border:0;color:var(--ink)}
+  .libRow .lx{background:none;border:0;cursor:pointer;color:var(--dim);font-size:11px}
   #sliders{overflow:visible;padding:0 1px 4px}
   details.grp{border-top:1px solid var(--rule)}
   details.grp:last-child{border-bottom:1px solid var(--rule)}
@@ -133,6 +138,14 @@
   .slab.on{background:var(--ink);color:var(--paper)}
   .musRow2{display:flex;justify-content:space-between;align-items:center}
   .musTog{border:0;background:none;cursor:pointer;color:var(--dim);font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase}
+  details.advGrp{grid-column:1/-1;border:1px solid var(--rule);margin:6px 0 10px}
+  details.advGrp>summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;
+    padding:10px 12px;font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim)}
+  details.advGrp>summary::-webkit-details-marker{display:none}
+  details.advGrp>summary::after{content:"+"}
+  details.advGrp[open]>summary::after{content:"\2013"}
+  .advBody{display:flex;flex-direction:column;gap:7px;padding:2px 12px 12px}
+  .advTail{display:flex;flex-direction:column;gap:10px;margin-top:6px}
 
   .ctl{display:grid;grid-template-columns:1fr auto;align-items:baseline;gap:0 10px}
   .ctl label{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink)}
@@ -260,14 +273,6 @@
   .performRow select{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;
     color:var(--ink);background:var(--paper);border:1px solid var(--rule);padding:7px 6px;width:100%}
   body.perform #panel{display:none}
-  .ctl output.live{color:#8e1f13}
-  .routebox{display:flex;gap:8px;align-items:center;padding:2px 4px 8px 12px}
-  .routebox label{font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim,#888)}
-  .routebox input[type=range]{width:84px}
-  .routebox output{font-size:10px;min-width:32px;text-align:right;font-variant-numeric:tabular-nums}
-  .routebox .shp{font-family:var(--mono);font-size:8px;letter-spacing:.12em;text-transform:uppercase;
-    background:transparent;border:1px solid var(--rule,#ccc);padding:2px 7px;cursor:pointer}
-  .routebox .shp.on{background:var(--ink,#141416);color:var(--paper,#fdfcf8);border-color:var(--ink,#141416)}
   #pfTools,#pfBar,#pfHud{transition:opacity .5s}
   body.pfhide #pfTools, body.pfhide #pfBar, body.pfhide #pfHud{opacity:0;pointer-events:none}
   body.perform #stage{inset:0 !important;border:none !important}
@@ -310,6 +315,7 @@
     <div id="viewPlay">
       <div class="pSec">
         <div class="eyeRow"><span class="eyebrow">Portals</span><span class="cnt" id="portalCnt"></span></div>
+        <div id="myLib"></div>
         <div id="blankRow">
           <button class="blankBtn" id="bBlank"><span>&#9671; BLANK CANVAS</span><span class="bsub">SANDBOX</span></button>
         </div>
@@ -518,37 +524,6 @@ float starLayer(vec2 p, float t){
   return base;
 }
 `;
-const GLSL_EXTRAS = `
-vec2 hash2(vec2 p){ return vec2(hash(p), hash(p + 17.17)); }
-float vnoi(vec2 p){
-  vec2 i = floor(p), f = fract(p);
-  float d = 8.0;
-  for(int y = -1; y <= 1; y++) for(int x = -1; x <= 1; x++){
-    vec2 g = vec2(float(x), float(y));
-    vec2 o = hash2(i + g);
-    d = min(d, length(g + o - f));
-  }
-  return d;
-}
-float ridge(vec2 p){ return 1.0 - abs(2.0*fbm(p) - 1.0); }
-vec2 curl(vec2 p){
-  float e = 0.02;
-  float a = fbm(p + vec2(0.0, e)) - fbm(p - vec2(0.0, e));
-  float b = fbm(p + vec2(e, 0.0)) - fbm(p - vec2(e, 0.0));
-  return vec2(a, -b)/(2.0*e);
-}
-vec3 pal3(float t, vec3 a, vec3 b, vec3 c){
-  float u = fract(t)*3.0;
-  return u < 1.0 ? mix(a, b, u) : u < 2.0 ? mix(b, c, u - 1.0) : mix(c, a, u - 2.0);
-}
-float post3(float v, float n){ return floor(clamp(v, 0.0, 1.0)*n)/n; }
-vec2 polarRep(vec2 p, float n){
-  float a = atan(p.y, p.x), r = length(p);
-  float seg = 6.28318/n;
-  a = mod(a + seg*0.5, seg) - seg*0.5;
-  return vec2(cos(a), sin(a))*r;
-}
-`;
 const GLSL_POST = `
 vec3 postfx(vec2 uv, vec2 vuv, vec2 px, float t){
   float ca = uChroma*0.008;                 // chromatic aberration: split RGB
@@ -613,10 +588,16 @@ const CTLS = [
   {k:"pflow",    u:"",         label:"Paint Flow",  min:0,max:1,   step:.01, group:"Paint", jsOnly:true},
   {k:"driftSpd",u:"",         label:"Drift Speed", min:1,max:10,  step:.1,  group:"Motion", jsOnly:true},
   {k:"driftAmt",u:"",         label:"Drift Depth", min:0,max:1,   step:.01, group:"Motion", jsOnly:true},
-  {k:"musicBreath",u:"",      label:"Breath",      min:0,max:1,   step:.01, group:"Music", jsOnly:true},
-  {k:"musicWander",u:"",      label:"Wander",      min:0,max:1,   step:.01, group:"Music", jsOnly:true},
-  {k:"musicPunch",u:"",       label:"Punch",       min:0,max:1.5, step:.01, group:"Music", jsOnly:true},
-  {k:"musicSens",u:"",        label:"Sensitivity", min:.3,max:3,  step:.01, group:"Music", jsOnly:true},
+  // the simplified Music panel — six knobs, each deciding what the song may touch.
+  // .5 is the classic feel; 0 mutes that response; 1 doubles it.
+  {k:"musSpeed",    u:"",     label:"Speed",       min:0,max:1,   step:.01, group:"Music", jsOnly:true},
+  {k:"musHue",      u:"",     label:"Hue",         min:0,max:1,   step:.01, group:"Music", jsOnly:true},
+  {k:"musMove",     u:"",     label:"Movement",    min:0,max:1,   step:.01, group:"Music", jsOnly:true},
+  {k:"musDepth",    u:"",     label:"Depth",       min:0,max:1,   step:.01, group:"Music", jsOnly:true},
+  {k:"musIntensity",u:"",     label:"Intensity",   min:0,max:1,   step:.01, group:"Music", jsOnly:true},
+  {k:"musZoom",     u:"",     label:"Zoom",        min:0,max:1,   step:.01, group:"Music", jsOnly:true},
+  {k:"musicAmt", u:"",        label:"Amount",      min:0,max:1,   step:.01, group:"Music", jsOnly:true, adv:true},
+  {k:"musicSens",u:"",        label:"Sensitivity", min:.3,max:3,  step:.01, group:"Music", jsOnly:true, adv:true},
 
   {k:"zoom",    u:"uZoom",    label:"Zoom",        min:.35,max:2.5,step:.01,group:"Space"},
   {k:"symmetry",u:"uSymmetry",label:"Kaleidoscope",min:1,max:8,   step:1,   group:"Space"},
@@ -668,15 +649,8 @@ const CTLS = [
   {k:"sparkle", u:"uSparkle", label:"Sparkle",     min:0,max:1.5, step:.01, group:"Post"},
   {k:"grain",   u:"uGrain",   label:"Grain",       min:0,max:1,   step:.01, group:"Post"},
   {k:"vignette",u:"uVignette",label:"Vignette",    min:0,max:1,   step:.01, group:"Post"},
-
-  {k:"fbAmt",  u:"uFbAmt",  label:"Feedback",    min:0,max:1,   step:.01, group:"Feedback"},
-  {k:"fbDecay",u:"uFbDecay",label:"Persistence", min:.5,max:1,  step:.005,group:"Feedback"},
-  {k:"fbZoom", u:"uFbZoom", label:"Tunnel Push", min:-3,max:3,  step:.01, group:"Feedback"},
-  {k:"fbRot",  u:"uFbRot",  label:"Swirl",       min:-3,max:3,  step:.01, group:"Feedback"},
-  {k:"fbWarp", u:"uFbWarp", label:"Liquid",      min:0,max:3,   step:.01, group:"Feedback"},
-  {k:"fbHue",  u:"uFbHue",  label:"Ghost Hue",   min:0,max:1,   step:.01, group:"Feedback"},
 ];
-const GROUP_ORDER = ["Music","Space","Field","Light","Color","Post","Feedback","Paint","Motion"]; // Orb shelved — engine intact, re-add "Orb" here to restore
+const GROUP_ORDER = ["Music","Space","Field","Light","Color","Post","Paint","Motion"]; // Orb shelved — engine intact, re-add "Orb" here to restore
 const byKey = {}; CTLS.forEach(c=>byKey[c.k]=c);
 
 function uniformKeysForMode(m){
@@ -693,7 +667,7 @@ const LESSONS = {
     code:"if(uMirX > 0.5) p.x = abs(p.x);   // mirror = absolute value\nfloat ang = atan(p.y,p.x) + uTwist*r;  // twist = angle grows with radius"
   },
   Music: {
-    text:"Music mode listens with a Fourier transform \u2014 math from 1965. Each frame the sound splits into bands: Bass (the kick), Mid (voices, synths), Treble (hats, air), plus a Beat pulse that fires when the low end jumps above its own recent average \u2014 a classic onset detector. Auto-gain now works per band \u2014 each of Bass/Mid/Treble learns its own floor and ceiling, so a phone speaker and a club PA read the same, and beats are capped at three per second (a photosensitivity guard venues expect). Breath sets the ambient sway of unrouted sliders; Punch sets how hard your routed accents and the beat itself hit \u2014 and each route now has a depth (\u00b1) and a shape: FLOW follows the signal, HIT snaps on its onsets, STEP jumps on every beat. Auto-Route wires sensible moves for this portal; open Routing to wire any slider yourself \u2014 B, M, T or \u2665 for beat. While Music is on, the drift engine itself becomes the orchestra: the song\u2019s energy sets the tempo of every breath, kicks snap Space and Light forward while Color and Post glide, and stacked harmonies (the H meter) make the color sing.",
+    text:"Music mode listens with a Fourier transform \u2014 math from 1965. Each frame the sound splits into bands: Bass (the kick), Mid (voices, synths), Treble (hats, air), plus a Beat pulse from an onset detector, capped at three per second (a photosensitivity guard venues expect). Auto-gain keeps a whisper and a club PA in the same range. Six knobs decide what the song may touch: Speed is how hard its energy drives the tempo of every breath, Hue lets harmonies bend the color wheel, Movement is how far Space and Field sway, Depth lets bass bloom the material toward you, Intensity is the kick\u2019s glow-and-pump punch, and Zoom lets the low end lean the camera in. Under Advanced: Amount is the master depth, Sensitivity the ear\u2019s gain, Auto-Route wires this portal\u2019s signature accents, and Routing lets you wire any slider yourself \u2014 B, M, T, H or \u2665 for beat.",
     code:"bins = FFT(microphone)         // sound -> frequencies\nbass = avg(bins[25..150 Hz])\nbeat: bass > 1.45 * rollingAvg // an onset detector"
   },
   Orb: {
@@ -727,10 +701,10 @@ const LESSONS = {
 };
 
 /* -------- shared defaults -------- */
-const D0 = {musicAmt:.7,musicBreath:.25,musicWander:.35,musicPunch:.85,musicSens:1,beatRipples:0,orb:0,orbSpin:.3,orbHard:.7,orbCount:1,bounce:0,streak:0,stars:0,brushSize:.16,smearStr:1.2,persist:1,pspread:.12,pflow:.1,speed:1,zoom:1,symmetry:1,warp:1,flow:1,spectrum:1,hue:0,sat:1.1,glow:.6,chroma:.8,sparkle:0,grain:.28,vignette:.5,driftSpd:3,driftAmt:.5,
+const D0 = {musicAmt:.7,musicSens:1,beatRipples:0,
+            musSpeed:.5,musHue:.5,musMove:.5,musDepth:.5,musIntensity:.5,musZoom:.5,orb:0,orbSpin:.3,orbHard:.7,orbCount:1,bounce:0,streak:0,stars:0,brushSize:.16,smearStr:1.2,persist:1,pspread:.12,pflow:.1,speed:1,zoom:1,symmetry:1,warp:1,flow:1,spectrum:1,hue:0,sat:1.1,glow:.6,chroma:.8,sparkle:0,grain:.28,vignette:.5,driftSpd:3,driftAmt:.5,
             core:0,coreSize:.4,ring:0,ringPos:.45,ringWidth:.4,horizon:0,horizonY:0,
-            tube:0,fibers:0,bgHue:.6,bgLight:0,rot:0,twist:0,mirx:0,miry:0,
-            fbAmt:0,fbDecay:.96,fbZoom:.6,fbRot:0,fbWarp:0,fbHue:0};
+            tube:0,fibers:0,bgHue:.6,bgLight:0,rot:0,twist:0,mirx:0,miry:0};
 
 /* -------- portals -------- */
 const PRESETS = [
@@ -1127,42 +1101,6 @@ vec3 scene(vec2 p, float t){
   return col;
 }`,
   d:{...D0, warp:1.3, flow:1.2, spectrum:1.3, hue:.3, glow:.5, grain:.35, chroma:1.2, vignette:.3, sat:1.3, fibers:.35}
-},
-{
-  id:"rainbowflare", name:"Rainbow Flare", note:"laser-burst footage inside the tube \u2014 a media portal", mode:"media",
-  media:"rainbow-flare.gif",
-  dd:{},
-  scene:`
-// MEDIA PORTAL \u2014 plays shipped footage through the full post chain:
-// zoom, kaleido, twist, chroma split, warp streak and the beat punch
-// all land on the real footage. Warp/Flow add a liquid wobble.
-vec3 scene(vec2 p, float t){
-  vec2 uv = vec2(p.x, -p.y/max(uMediaAspect, 0.05)) * 1.05 + 0.5;
-  vec2 w = vec2(fbm(p*2.6 + t*0.12*uFlow), fbm(p*2.6 + 7.7 - t*0.09*uFlow)) - 0.5;
-  uv += w * 0.10 * uWarp;
-  vec2 m = abs(fract(uv*0.5)*2.0 - 1.0);   // mirror-tile beyond the edges
-  return texture2D(uMedia, m).rgb;
-}
-`,
-  d:{...D0, zoom:.63, glow:.4, chroma:.3, grain:.15, vignette:.4, sat:1.05, warp:.4, flow:.8, sparkle:1,
-     musicBreath:.72, musicSens:1.88, musicPunch:1.1, twist:-.55, tube:1}
-},
-{
-  id:"untitled19", name:"Untitled 19", note:"streaked spectral rings at speed \u2014 born in the lab", mode:"preset",
-  dd:{},
-  scene:`
-// NEW EXPERIMENT \u2014 start simple: distance + palette
-vec3 scene(vec2 p, float t){
-  float r = length(p);
-  float w = fbm(p*3.0 + t*0.1*uFlow);
-  float d = sin(r*8.0 - t + w*4.0*uWarp)*0.5 + 0.5;
-  vec3 col = spectral(d*0.4*uSpectrum + uHue) * (0.2 + d);
-  col *= smoothstep(1.4, 0.4, r);
-  return col;
-}
-`,
-  d:{...D0, zoom:.35, rot:6.28, twist:-.14, warp:.49, hue:.16, bgHue:.875, glow:0, chroma:.73, streak:.62,
-     fibers:.04, grain:.58, fbZoom:.01, fbDecay:.5, fbHue:.47, speed:2.55}
 }
 ];
 
@@ -1179,9 +1117,7 @@ const VERT = "attribute vec2 aP; void main(){ gl_Position = vec4(aP,0.0,1.0); }"
 
 function headerFor(keys){
   let u = "precision highp float;\nuniform vec2 uRes; uniform float uTime; uniform vec2 uMouse; uniform vec3 uTap;\n";
-  u += "uniform vec3 uRipplePts[8];\nuniform sampler2D uPaint;\nuniform float uBeat; uniform float uAud;\n";
-  u += "uniform sampler2D uMedia; uniform float uMediaAspect;\n";
-  u += "uniform sampler2D uPrev; uniform float uFbDt;\n";
+  u += "uniform vec3 uRipplePts[8];\nuniform sampler2D uPaint;\nuniform float uBeat; uniform float uAud; uniform float uDepth;\n";
   for(const k of keys) u += "uniform float "+byKey[k].u+";\n";
   return u;
 }
@@ -1196,6 +1132,9 @@ void main(){
   uv += vec2(pd.x*(uRes.x/uRes.y), pd.y) * 0.65;
   uv /= uZoom;
   uv /= (1.0 + uBeat*0.035);          // kick punches the camera in
+  // DEPTH — bass blooms the center of the field toward you while the
+  // edges stay pinned: a dolly into the material, not a zoom of the frame
+  uv *= 1.0 - uDepth*0.30*exp(-dot(uv,uv)*1.6);
   uv += uMouse*0.35;
   float cr = cos(uRot), sr = sin(uRot);        // ROTATE
   uv = mat2(cr,-sr,sr,cr)*uv;
@@ -1286,26 +1225,10 @@ void main(){
   } else {
     col = postfx(uv, suv, gl_FragCoord.xy, uTime*uSpeed);
   }
-  // FEEDBACK — the previous frame re-projected (zoomed, swirled, liquefied),
-  // decayed, and kept alive under the new light. The MilkDrop loop.
-  if(uFbAmt > 0.001){
-    vec2 sc = (gl_FragCoord.xy - 0.5*uRes)/uRes.y;
-    float zf = 1.0 + uFbZoom*0.02*uFbDt;
-    float an = uFbRot*0.02*uFbDt;
-    float ca = cos(an), sa = sin(an);
-    vec2 q = mat2(ca, sa, -sa, ca) * (sc/zf);
-    q += (vec2(fbm(sc*2.5 + uTime*0.11), fbm(sc*2.5 + 7.7 - uTime*0.09)) - 0.5) * uFbWarp * 0.02 * uFbDt;
-    vec2 fuv = vec2(q.x*uRes.y/uRes.x, q.y) + 0.5;
-    fuv = abs(fract(fuv*0.5)*2.0 - 1.0);
-    vec3 prev = texture2D(uPrev, fuv).rgb;
-    if(uFbHue > 0.001) prev = mix(prev, prev.gbr, clamp(uFbHue*0.6*uFbDt, 0.0, 1.0));
-    prev = max(prev*pow(clamp(uFbDecay, 0.0, 1.0), uFbDt) - 0.0015*uFbDt, 0.0);
-    col = mix(col, max(col, prev), uFbAmt);
-  }
   gl_FragColor = vec4(col, 1.0);
 }`;
 function liveSource(preset){
-  return headerFor(uniformKeysForMode(preset.mode)) + GLSL_COMMON + GLSL_STARFIELD + GLSL_EXTRAS + preset.scene + "\n" + GLSL_POST + APP_MAIN;
+  return headerFor(uniformKeysForMode(preset.mode)) + GLSL_COMMON + GLSL_STARFIELD + preset.scene + "\n" + GLSL_POST + APP_MAIN;
 }
 
 const progCache = {};
@@ -1326,10 +1249,8 @@ function buildProgram(src, keys){
   gl.linkProgram(p);
   if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
   const locs = { uRes:gl.getUniformLocation(p,"uRes"), uTime:gl.getUniformLocation(p,"uTime"), uMouse:gl.getUniformLocation(p,"uMouse"), uTap:gl.getUniformLocation(p,"uTap"),
-    uBeat:gl.getUniformLocation(p,"uBeat"), uAud:gl.getUniformLocation(p,"uAud"),
-    uRipplePts:gl.getUniformLocation(p,"uRipplePts[0]"), uPaint:gl.getUniformLocation(p,"uPaint"),
-    uMedia:gl.getUniformLocation(p,"uMedia"), uMediaAspect:gl.getUniformLocation(p,"uMediaAspect"),
-    uPrev:gl.getUniformLocation(p,"uPrev"), uFbDt:gl.getUniformLocation(p,"uFbDt") };
+    uBeat:gl.getUniformLocation(p,"uBeat"), uAud:gl.getUniformLocation(p,"uAud"), uDepth:gl.getUniformLocation(p,"uDepth"),
+    uRipplePts:gl.getUniformLocation(p,"uRipplePts[0]"), uPaint:gl.getUniformLocation(p,"uPaint") };
   for(const k of keys) locs[k] = gl.getUniformLocation(p, byKey[k].u);
   return {prog:p, locs, keys, aP:gl.getAttribLocation(p,"aP")};
 }
@@ -1364,92 +1285,59 @@ function keyPhase(k){  // stable per-control phase so drifts don't sync up
   for(let i=0;i<k.length;i++) h = (h*31 + k.charCodeAt(i)) % 997;
   return h/997*6.283;
 }
-let liveOuts = {}, liveN = 0, liveDirty = false;
-function updateLiveOuts(e){
-  const on = music.on && !music.renderMute;
-  if(!on){
-    if(liveDirty){
-      for(const k in liveOuts){
-        const {out, c} = liveOuts[k];
-        out.classList.remove("live");
-        out.textContent = c.step>=1 ? String(Math.round(vals[k])) : (+vals[k]).toFixed(2);
-      }
-      liveDirty = false;
-    }
-    return;
-  }
-  liveDirty = true;
-  for(const k in liveOuts){
-    const {out, c} = liveOuts[k];
-    const v = e[k];
-    if(typeof v !== "number") continue;
-    if(Math.abs(v - vals[k]) > 0.004){
-      out.textContent = c.step>=1 ? String(Math.round(v)) : (+v).toFixed(2);
-      out.classList.add("live");
-    } else {
-      out.classList.remove("live");
-      out.textContent = c.step>=1 ? String(Math.round(vals[k])) : (+vals[k]).toFixed(2);
-    }
-  }
-}
 function effective(){
-  if(music.on && !music.renderMute){       // MUSIC ENGINE V2 — few strong moves:
-    // routed sliders do NOT breathe (their base stays clean under the accent);
-    // Breath scales the ambient conductor, Punch scales routes + uBeat/uAud
-    const breath = vals.musicBreath==null?0.25:vals.musicBreath;
-    const punch = vals.musicPunch==null?0.85:vals.musicPunch;
-    const wl = vals.musicWander==null?0.35:vals.musicWander;
+  if(music.on && !music.renderMute){       // THE CONDUCTOR — the song plays the drift
+    const A  = vals.musicAmt==null?0.7:vals.musicAmt;    // master depth (Advanced)
+    // the six knobs of the simplified panel — .5 = classic feel, 0 = mute, 1 = double
+    const Sp = (vals.musSpeed==null?.5:vals.musSpeed)*2;
+    const Hk = (vals.musHue==null?.5:vals.musHue)*2;
+    const Mk = (vals.musMove==null?.5:vals.musMove)*2;
+    const Dk =  vals.musDepth==null?.5:vals.musDepth;
+    const Ik = (vals.musIntensity==null?.5:vals.musIntensity)*2;
+    const Zk = (vals.musZoom==null?.5:vals.musZoom)*2;
+    const KNOB = {Space:Mk, Orb:Mk, Field:Mk, Motion:Mk, Paint:Mk,  // which knob owns each family
+                  Light:Ik, Post:Ik, Color:Hk};
     const out = {...vals};
-    const r2 = ensureRoutes2();
-    const wof = k => (wl > 0.001 && byKey[k]) ? wanderOff(k, byKey[k], wl) : 0;
-    if(wl > 0.001){                        // the journey: every home position drifts on its leash
-      for(const k of uiKeysForMode(cur.mode)){
-        if(!routeEligible(k) || k === "hue") continue;
-        const c = byKey[k];
-        out[k] = Math.min(c.max, Math.max(c.min, vals[k] + wof(k)));
-      }
-    }
     const g = music.cg;                      // slow copies: motion stays liquid
     const T = music.driftT;                  // musical clock: energy sets the tempo
+    const kick = music.phaseSm*Math.min(1,A*1.4)*Math.min(1.5,Sp);
     const GBAND = {Space:g.bass, Orb:g.bass, Field:(g.bass+g.mid)*0.5,
                    Light:g.beat, Color:g.mid*0.5+g.harm*0.9, Post:g.treble};
-    if(breath > 0.001){
-      for(const k of uiKeysForMode(cur.mode)){
-        if(!routeEligible(k) || r2[k]) continue;
-        const c = byKey[k];
-        if(k==="hue"){                       // harmonies bend the color wheel
-          const hw = wl > 0.001 ? (noise1(music.wanderT*1.8 + 11.3) - noise1(music.wanderPinT*1.8 + 11.3))*wl*0.3 : 0;
-          out.hue = ((vals.hue + hw + T*0.004*breath*2.8 + g.harm*0.06*breath) % 1 + 1) % 1;
-          continue;
-        }
-        const ph = keyPhase(k);
-        const f  = 0.05 + (ph/6.283)*0.05;
-        const band = GBAND[c.group]!==undefined ? GBAND[c.group] : g.level;
-        const amp = 0.12*breath*(0.45 + band*1.1);
-        out[k] = Math.min(c.max, Math.max(c.min,
-          out[k] + (c.max-c.min)*amp*Math.sin(T*f + ph)));
-      }
-    }
-    for(const k in r2){                      // the honed moves — strong and legible
-      const c = byKey[k]; if(!c) continue;
-      const rr = r2[k];
-      if(rr.shape === "step"){
-        if(k === "hue"){                     // hue walks the wheel, one step per beat
-          out.hue = ((out.hue + music.beatCount*Math.abs(rr.depth)*0.083) % 1 + 1) % 1;
-          continue;
-        }
-        const v = stepHash(k, music.beatCount);
-        out[k] = Math.min(c.max, Math.max(c.min, vals[k] + wof(k) + (c.max-c.min)*rr.depth*punch*v));
+    const SNAP  = {Space:1, Orb:1, Light:1}; // these jump on the kick; Color/Post glide
+    for(const k of uiKeysForMode(cur.mode)){
+      if(!routeEligible(k)) continue;
+      const c = byKey[k];
+      if(k==="hue"){                         // HUE — harmonies bend the color wheel
+        out.hue = ((vals.hue + music.hueT*0.004 + g.harm*0.06*A*Hk) % 1 + 1) % 1;
         continue;
       }
-      let v;
-      if(rr.shape === "hit"){
-        const t0 = music.onset[rr.sig] !== undefined ? music.onset[rr.sig] : -9;
-        v = Math.pow(0.5, Math.max(0, simTime - t0)/0.18);   // punchy attack, round decay
-      } else {
-        v = music.out[rr.sig] || 0;                          // flow: the smoothed signal
+      const ph = keyPhase(k);
+      const f  = 0.05 + (ph/6.283)*0.05;
+      const band = GBAND[c.group]!==undefined ? GBAND[c.group] : g.level;
+      const kb = KNOB[c.group]==null ? 1 : KNOB[c.group];
+      const amp = 0.17*A*kb*(0.5 + band*1.5);   // each breath swells with its band
+      out[k] = Math.min(c.max, Math.max(c.min,
+        vals[k] + (c.max-c.min)*amp*Math.sin(T*f + ph + (SNAP[c.group]?kick:0))));
+    }
+    if(vals.zoom!=null && byKey.zoom){       // ZOOM — the low end leans the camera in
+      const zc = byKey.zoom;
+      out.zoom = Math.min(zc.max, Math.max(zc.min,
+        out.zoom + (zc.max-zc.min)*A*Zk*(0.045*g.bass + 0.035*music.out.beat)));
+    }
+    if(Dk>0){                                // DEPTH — bass blooms the field itself:
+      const swell = 1 + g.bass*A*Dk*1.1;     // cloud scales drop, features grow toward you
+      for(const sk of ["scaleA","scaleBX","scaleBY"]){   // (Blank Canvas; every portal also
+        if(out[sk]==null || !byKey[sk]) continue;        //  gets the shader-side bloom)
+        const fr = sk==="scaleA" ? 1 : 0.55;
+        out[sk] = Math.max(byKey[sk].min, out[sk]/(1+(swell-1)*fr));
       }
-      out[k] = Math.min(c.max, Math.max(c.min, out[k] + (c.max-c.min)*rr.depth*punch*v));
+    }
+    for(const k in musicRoutes){             // signature accents on top (fast signals)
+      const c=byKey[k]; if(!c) continue;
+      const sg = music.out[musicRoutes[k]]||0;
+      const dp=(typeof ROUTE_DEPTH!=="undefined"&&ROUTE_DEPTH[k])||0.3;
+      const kb = k==="zoom" ? Zk : k==="hue" ? Hk : (KNOB[c.group]==null ? 1 : KNOB[c.group]);
+      out[k]=Math.min(c.max, Math.max(c.min, out[k] + (c.max-c.min)*dp*A*kb*sg));
     }
     return out;
   }
@@ -1504,12 +1392,9 @@ function renderDims(tierW, tierH){
 
 /* -------- sizing -------- */
 function fitCanvas(){
-  if(typeof recorder!=="undefined" && recorder) return;   // dimensions are locked mid-take
   const dprCap = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent) ? 1.5 : 2;
   const dpr = Math.min(window.devicePixelRatio||1, dprCap);
-  let w = Math.round(canvas.clientWidth*dpr), h = Math.round(canvas.clientHeight*dpr);
-  const bud = (typeof pixelBudget === "function") ? pixelBudget() : 0;
-  if(bud && w*h > bud){ const sc = Math.sqrt(bud/(w*h)); w = Math.round(w*sc); h = Math.round(h*sc); }
+  const w = Math.round(canvas.clientWidth*dpr), h = Math.round(canvas.clientHeight*dpr);
   if(w && h && (canvas.width!==w || canvas.height!==h)){ canvas.width=w; canvas.height=h; }
 }
 addEventListener("resize", ()=>{ if(!rendering) applyFrame(); });
@@ -1618,48 +1503,13 @@ const music = {
   bins:null, sig:{bass:0,mid:0,treble:0,level:0,beat:0},
   out:{bass:0,mid:0,treble:0,level:0,beat:0,harm:0},   // smoothed — what actually drives sliders
   env:{bass:0,mid:0,treble:0,level:0,harm:0}, beatAvg:0.02, beatPk:0, lastBeat:-9, agc:0.12,
-  driftT:0, phaseKick:0, phaseSm:0, tempoSm:0.6,
+  driftT:0, hueT:0, phaseKick:0, phaseSm:0, tempoSm:0.6,
   cg:{bass:0,mid:0,treble:0,level:0,beat:0,harm:0},  // slow copies: fluid, never jittery
   lvlAvg:0.02, quietT:0, quietWarned:-99, wasAbove:false, wasLvlAbove:false,
   prevBins:null, fluxAvg:0.004, wasFAbove:false, queue:[], qi:0,
-  beatCount:0, wanderT:0, wanderPinT:0, wanderKick:0,
-  onset:{bass:-9, mid:-9, treble:-9, harm:-9, level:-9, beat:-9},
-  v2:{ floor:{bass:.02,mid:.02,treble:.02,level:.02},
-       peak:{bass:.06,mid:.06,treble:.06,level:.06},
-       avg:{bass:0,mid:0,treble:0,harm:0,level:0},
-       was:{bass:false,mid:false,treble:false,harm:false,level:false},
-       kickPk:.01, kickEnv:0, bassAliveSm:1, rescue:false },
 };
 const musicRoutesByPortal = {};        // your custom wiring, remembered per portal
 let musicRoutes = {};                  // slider key -> signal name
-const musicRoutes2ByPortal = {};       // v2: key -> {sig, depth, shape}
-let musicRoutes2 = {};
-const ROUTE_SHAPES = ["flow","hit","step"];
-function ensureRoutes2(){              // derive/refresh v2 routing from the v1 map
-  for(const k in musicRoutes){
-    if(!musicRoutes2[k]) musicRoutes2[k] = { sig:musicRoutes[k],
-      depth:(ROUTE_DEPTH[k] || 0.3), shape: musicRoutes[k] === "beat" ? "hit" : "flow" };
-    else musicRoutes2[k].sig = musicRoutes[k];
-  }
-  for(const k in musicRoutes2) if(!musicRoutes[k]) delete musicRoutes2[k];
-  return musicRoutes2;
-}
-function noise1(x){                    // smooth 1D value-noise: a walk that never retraces
-  const i = Math.floor(x), f = x - i;
-  const u = f*f*(3 - 2*f);
-  const h = n => { const v = Math.sin(n*127.1)*43758.5453; return v - Math.floor(v); };
-  return h(i) + (h(i + 1) - h(i))*u;
-}
-function wanderOff(k, c, leash){       // offset from the pinned origin — 0 right after a Pin
-  const f = 0.6 + (keyPhase(k)/6.283)*0.8;
-  const cur = noise1(music.wanderT*f*3.0 + keyPhase(k)*57.0);
-  const pin = noise1(music.wanderPinT*f*3.0 + keyPhase(k)*57.0);
-  return (c.max - c.min)*leash*0.4*(cur - pin);
-}
-function stepHash(k, n){               // deterministic per-beat jump target
-  const v = Math.sin(n*12.9898 + keyPhase(k)*7.13)*43758.5453;
-  return v - Math.floor(v);
-}
 let musicRoutingUI = false;
 const ROUTE_SIGS = ["","bass","mid","treble","harm","beat"];
 const SIG_ABBR = {bass:"B", mid:"M", treble:"T", harm:"H", beat:"\u2665"};
@@ -1686,27 +1536,12 @@ const PORTAL_ROUTES = {                // each portal's signature moves
   metal:     {glow:"beat", warp:"bass",  sat:"mid",        sparkle:"treble"},
   grain:     {warp:"beat", flow:"bass",  sat:"mid",        spectrum:"treble"},
   silk:      {glow:"beat", flow:"bass",  fibers:"harm",    sparkle:"treble"},
-  rainbowflare: {streak:"bass", chroma:"treble", sat:"mid", sparkle:"mid", glow:"mid", spectrum:"treble", zoom:"treble"},
-  untitled19: {warp:"bass", flow:"mid", sparkle:"beat", sat:"harm", fbRot:"harm", hue:"beat", bgHue:"treble"},
-};
-const PORTAL_ROUTES2 = {               // honed v2 depths/shapes (from the lab)
-  rainbowflare: {streak:{sig:"bass", depth:.4, shape:"flow"}, chroma:{sig:"treble", depth:.25, shape:"flow"},
-                 sat:{sig:"mid", depth:.15, shape:"flow"}, sparkle:{sig:"mid", depth:.38, shape:"flow"},
-                 glow:{sig:"mid", depth:.38, shape:"flow"}, spectrum:{sig:"treble", depth:.18, shape:"flow"},
-                 zoom:{sig:"treble", depth:.12, shape:"flow"}},
-  untitled19: {warp:{sig:"bass", depth:-.05, shape:"flow"}, flow:{sig:"mid", depth:.2, shape:"flow"},
-               sparkle:{sig:"beat", depth:.38, shape:"flow"}, sat:{sig:"harm", depth:.12, shape:"hit"},
-               fbRot:{sig:"harm", depth:.25, shape:"flow"}, hue:{sig:"beat", depth:.3, shape:"step"},
-               bgHue:{sig:"treble", depth:.3, shape:"flow"}},
 };
 function autoRoute(){                  // this portal's signature wiring, one tap
-  musicRoutes = {}; musicRoutes2 = {};
+  musicRoutes = {};
   const base = PORTAL_ROUTES[cur.id] ||
     {warp:"bass", flow:"mid", sparkle:"treble", glow:"beat"};
   for(const k in base) if(routeEligible(k)) musicRoutes[k]=base[k];
-  ensureRoutes2();
-  const p2 = PORTAL_ROUTES2[cur.id];   // honed depths/shapes override the defaults
-  if(p2) for(const k in p2) if(musicRoutes2[k]) musicRoutes2[k] = {...p2[k]};
 }
 function ensureAnalyser(){
   if(music.analyser) return;
@@ -1722,21 +1557,10 @@ function musicAttach(st, msg){
   music.stream = st;
   music.src = music.ctx.createMediaStreamSource(st);
   ensureAnalyser();
-  if(!music.recDest) music.recDest = music.ctx.createMediaStreamDestination();
-  try{ music.src.connect(music.recDest); }catch(e){}   // raw (unboosted) audio for clips
-  if(music.inputKind === "MIC"){       // a mic across a desk is quiet — boost into
-    if(!music.micGain){ music.micGain = music.ctx.createGain(); music.micGain.gain.value = 3.0; }
-    try{ music.micGain.disconnect(); }catch(e){}
-    music.micGain.connect(music.analyser);
-    music.src.connect(music.micGain);  // the analyser's dB window (never audible)
-    for(const k in music.v2.floor){ music.v2.floor[k] = 0.02; music.v2.peak[k] = 0.06; }
-  } else {
-    music.src.connect(music.analyser);
-  }
+  music.src.connect(music.analyser);
   music.on = true;
   if(!Object.keys(musicRoutes).length) autoRoute();
   setMusicUI(true); say(msg);
-  buildSliders();          // routes may have just been wired — refresh the chips
 }
 function syncSeg(){
   const seg=document.getElementById("musSeg"); if(!seg) return;
@@ -1777,7 +1601,7 @@ async function musicStart(devId){
     say("Mic blocked \u2014 allow microphone access and try again");
   }
 }
-async function musicStartFile(file, auto){    // auto=false: load paused, start via ▶ or Rec Live
+async function musicStartFile(file){    // Phase 2: play a track inside the app
   try{
     music.ctx = music.ctx || new (window.AudioContext||window.webkitAudioContext)();
     await music.ctx.resume();
@@ -1792,27 +1616,21 @@ async function musicStartFile(file, auto){    // auto=false: load paused, start 
     try{ music.fileNode.disconnect(); }catch(e){}
     music.fileNode.connect(music.analyser);
     music.fileNode.connect(music.ctx.destination);   // you hear it too
-    if(!music.recDest) music.recDest = music.ctx.createMediaStreamDestination();
-    try{ music.fileNode.connect(music.recDest); }catch(e){}
     music.audioEl.loop = music.queue.length < 2;     // sets don't loop one song
     music.audioEl.onended = ()=>{
       if(music.queue.length > 1){
         music.qi = (music.qi + 1) % music.queue.length;
-        musicStartFile(music.queue[music.qi], true);
+        musicStartFile(music.queue[music.qi]);
       }
     };
     music.audioEl.src = URL.createObjectURL(file);
-    if(auto){ await music.audioEl.play(); }
-    else { try{ music.audioEl.pause(); }catch(e){} }
+    await music.audioEl.play();
     music.inputKind="FILE";
     music.on = true;
     if(!Object.keys(musicRoutes).length) autoRoute();
     setMusicUI(true);
-    buildSliders();
     const pos = music.queue.length > 1 ? (music.qi+1)+"/"+music.queue.length+" \u00b7 " : "";
-    say(auto ? "Playing "+pos+file.name+" \u266a"
-             : "Loaded "+pos+file.name+" \u2014 press \u25b6 Play, or Rec Live to start in sync");
-    buildSliders();
+    say("Playing "+pos+file.name+" \u266a");
   }catch(err){ say("Couldn\u2019t play that file \u2014 try an MP3, M4A or WAV"); }
 }
 async function musicStartTab(){           // capture a Chrome tab's sound directly
@@ -1875,20 +1693,12 @@ function musicUpdate(dt){
   // auto-gain: normalize to the loudest thing heard lately (~8s half-life)
   music.agc = Math.max(music.agc*Math.pow(0.5, dt/8), raw.level, 0.05);
   const sens = vals.musicSens==null?1:vals.musicSens;
-  // V2 CONDITIONING — each band gets its own noise floor and auto-gain, so a
-  // laptop mic (no sub-bass, hyped treble, room hiss) matches a clean tab feed
   for(const k in raw){
-    const fl = music.v2.floor[k] = Math.min(
-      raw[k] < music.v2.floor[k] + 0.02 ? music.v2.floor[k] + dt*0.02 : music.v2.floor[k],
-      raw[k]);   // floor learns only during quiet — sustained music never eats itself
-    const pk = music.v2.peak[k] = Math.max(music.v2.peak[k]*Math.pow(0.5, dt/8), raw[k], fl + 0.03);
-    const dr = pk - fl;
-    // GATE: a band whose ceiling barely clears its floor has no real content
-    const v = dr < 0.045 ? 0 : Math.min(1.5, (raw[k] - fl)/dr*sens);
-    const e = music.env[k];
+    const v=Math.min(1.5, raw[k]/music.agc*sens*0.9);
+    const e=music.env[k];
     music.env[k] = v>e ? e+(v-e)*Math.min(1,dt*22)     // fast attack: hit the transient
                        : e+(v-e)*Math.min(1,dt*4.5);   // slow release: decay musically
-    music.sig[k]=Math.min(1,Math.max(0,music.env[k]));
+    music.sig[k]=Math.min(1,music.env[k]);
   }
   // beat: bass onset OR broadband jump (phone speakers carry the kick in
   // its harmonics, not the sub) — strobe-guarded to ~3/s
@@ -1906,17 +1716,12 @@ function musicUpdate(dt){
   if(!music.prevBins) music.prevBins = new Uint8Array(music.bins.length);
   const nyq2 = music.ctx.sampleRate/2, nb = music.bins.length;
   const kickHi = Math.ceil(260/nyq2*nb), fluxHi = Math.min(nb-1, Math.ceil(3200/nyq2*nb));
-  const punchHi = Math.min(nb-1, Math.ceil(1200/nyq2*nb));
-  let flux = 0, fluxK = 0;
+  let flux = 0;
   for(let i=1; i<=fluxHi; i++){
     const d = music.bins[i] - music.prevBins[i];
-    if(d > 0){
-      flux += d * (i <= kickHi ? 2.2 : 1.0);   // weight the kick range
-      if(i <= punchHi) fluxK += d;             // percussive punch band
-    }
+    if(d > 0) flux += d * (i <= kickHi ? 2.2 : 1.0);   // weight the kick range
   }
   flux /= (fluxHi*255);
-  music.fluxK = fluxK/(punchHi*255);
   music.prevBins.set(music.bins);
   music.fluxAvg += (flux - music.fluxAvg)*Math.min(1, dt*2.2);
   const fAbove = flux > music.fluxAvg*1.55 + 0.004;
@@ -1928,11 +1733,9 @@ function musicUpdate(dt){
   const onset = fluxOnset || bassOnset;
   if(onset && simTime-music.lastBeat > 0.34){
     music.lastBeat=simTime; music.beatPk=1;
-    music.beatCount++; music.onset.beat = simTime;
-    if(music.beatCount % 16 === 0) music.wanderKick += 1.2;   // phrase turn
     music.beatTimes=music.beatTimes||[]; music.beatTimes.push(simTime);
     if(music.beatTimes.length>9) music.beatTimes.shift();
-    music.phaseKick += 0.5;                // motion turns a corner on the kick
+    music.phaseKick += 0.7;                // motion turns a corner on the kick
     if((vals.beatRipples==null?0:vals.beatRipples) > 0.5){
       const rc=canvas.getBoundingClientRect();          // a shockwave lands somewhere new
       const [sx,sy]=toScene(rc.left+(0.12+0.76*Math.random())*rc.width,
@@ -1953,35 +1756,21 @@ function musicUpdate(dt){
     ? music.env.harm + (harmRaw-music.env.harm)*Math.min(1,dt*6)
     : music.env.harm + (harmRaw-music.env.harm)*Math.min(1,dt*1.8);   // long, singing release
   music.sig.harm = Math.min(1, music.env.harm);
-  // SMALL-SPEAKER RESCUE — phone speakers carry the kick in its harmonics,
-  // not the sub. If the low band stays dead, rebuild bass from punch-band flux.
-  {
-    const bassAlive = (music.v2.peak.bass - music.v2.floor.bass) > 0.055 ? 1 : 0;
-    music.v2.bassAliveSm += (bassAlive - music.v2.bassAliveSm)*Math.min(1, dt*0.5);
-    music.v2.kickPk = Math.max(music.v2.kickPk*Math.pow(0.5, dt/8), music.fluxK || 0, 0.008);
-    const kickN = Math.min(1.5, (music.fluxK || 0)/music.v2.kickPk*(vals.musicSens==null?1:vals.musicSens));
-    const ke = music.v2.kickEnv;
-    music.v2.kickEnv = kickN > ke ? ke + (kickN-ke)*Math.min(1, dt*28) : ke + (kickN-ke)*Math.min(1, dt*5);
-    music.v2.rescue = music.v2.bassAliveSm < 0.5;
-    if(music.v2.rescue) music.sig.bass = Math.max(music.sig.bass, Math.min(1, music.v2.kickEnv));
-  }
-  // per-signal onset edges (feeds "HIT"-shaped routes)
-  for(const k of ["bass","mid","treble","harm","level"]){
-    const a = music.v2.avg[k] = music.v2.avg[k] + (music.sig[k] - music.v2.avg[k])*Math.min(1, dt*1.5);
-    const above = music.sig[k] > a*1.35 + 0.03;
-    if(above && !music.v2.was[k]) music.onset[k] = simTime;
-    music.v2.was[k] = above;
-  }
   // conductor copies — a second, much slower smoothing stage. The fast
   // signals stay for accents; these shape continuous motion, so they glide.
   for(const k in music.out){
     const t=music.out[k], o=music.cg[k];
     music.cg[k] = o + (t-o)*Math.min(1, dt*2.2);
   }
-  // the musical clock: tempo follows the song, but changes over ~2 seconds
-  const tTgt = 0.35 + music.cg.level*1.5;
+  // the musical clock: tempo follows the song, but changes over ~2 seconds.
+  // the Speed knob decides how hard the song's energy is allowed to drive it.
+  const spdK = (vals.musSpeed==null?.5:vals.musSpeed)*2;
+  const tTgt = 0.3 + 0.1*spdK + music.cg.level*2.6*spdK;
   music.tempoSm += (tTgt - music.tempoSm)*Math.min(1, dt*0.8);
   music.driftT += dt*music.tempoSm;
+  // hue keeps its own odometer: the Hue knob changes how fast it travels from
+  // NOW on — multiplying the big shared clock made the wheel snap mid-drag
+  music.hueT += dt*music.tempoSm*((vals.musHue==null?.5:vals.musHue)*2);
   music.phaseSm += (music.phaseKick - music.phaseSm)*Math.min(1, dt*7);  // kicks swerve, not snap
   // smoothed copies drive the sliders — punch stays, jitter dies
   for(const k of ["bass","mid","treble","level","harm"]){
@@ -1989,8 +1778,6 @@ function musicUpdate(dt){
     music.out[k] = t>o ? o+(t-o)*Math.min(1,dt*16) : o+(t-o)*Math.min(1,dt*5.5);
   }
   music.out.beat = Math.max(music.out.beat*Math.pow(0.5, dt/0.22), music.sig.beat);
-  music.wanderT += dt*(0.015 + music.cg.level*0.05) + music.wanderKick*dt*0.5;
-  music.wanderKick *= Math.pow(0.5, dt/0.8);
   const mm=document.getElementById("musMeters");        // live meters
   if(mm){
     const v=[music.sig.bass,music.sig.mid,music.sig.treble,music.sig.harm,music.sig.beat];
@@ -2138,200 +1925,12 @@ function clearPaint(quiet){
   if(!quiet) say("Paint cleared");
 }
 
-/* -------- media portals: shipped footage through the post chain -------- */
-const mediaPlayers = {};
-function mediaIdb(){
-  return new Promise((res, rej) => {
-    const r = indexedDB.open("tripout-media", 1);
-    r.onupgradeneeded = () => r.result.createObjectStore("m");
-    r.onsuccess = () => res(r.result);
-    r.onerror = () => rej(r.error);
-  });
-}
-async function mediaIdbGet(k){
-  try{
-    const db = await mediaIdb();
-    return await new Promise((res, rej) => {
-      const rq = db.transaction("m").objectStore("m").get(k);
-      rq.onsuccess = () => res(rq.result || null);
-      rq.onerror = () => rej(rq.error);
-    });
-  }catch(e){ return null; }
-}
-async function mediaIdbPut(k, v){
-  const db = await mediaIdb();
-  return new Promise((res, rej) => {
-    const tx = db.transaction("m", "readwrite");
-    tx.objectStore("m").put(v, k);
-    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
-  });
-}
-addEventListener("dragover", e => { if(cur && cur.media) e.preventDefault(); });
-addEventListener("drop", async e => {
-  if(!cur || !cur.media || !e.dataTransfer || !e.dataTransfer.files.length) return;
-  e.preventDefault();
-  const f = e.dataTransfer.files[0];
-  if(!/^(image|video)\//.test(f.type)){ say("That file isn't footage"); return; }
-  try{
-    await mediaIdbPut(cur.id, f);
-    delete mediaPlayers[cur.id];         // re-init from the fresh local copy
-    say("Footage loaded \u2014 it stays on this computer");
-  }catch(err){ say("Couldn't store the footage: " + err.message); }
-});
-let mediaTexApp = null, mediaAspectApp = 1;
-function ensureMediaTex(){
-  if(mediaTexApp) return;
-  mediaTexApp = gl.createTexture();
-  gl.activeTexture(gl.TEXTURE1);
-  gl.bindTexture(gl.TEXTURE_2D, mediaTexApp);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([8,8,12,255]));
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-}
-function mediaPlayer(pr){
-  let pl = mediaPlayers[pr.id];
-  if(pl) return pl;
-  pl = mediaPlayers[pr.id] = { ready:false, err:null, kind:null, dec:null, count:1,
-                               frameIdx:0, nextAt:0, pending:false, bitmap:null, aspect:1, uploaded:false };
-  (async () => {
-    try{
-      let blob = null;
-      try{
-        const rsp = await fetch(pr.media);
-        if(rsp.ok) blob = await rsp.blob();
-      }catch(e){}
-      if(!blob) blob = await mediaIdbGet(pr.id);           // your private local copy
-      if(!blob){
-        pl.err = "missing footage";
-        say("Drop " + pr.media + " anywhere on the page \u2014 it stays on this computer, never in the repo");
-        return;
-      }
-      const type = blob.type || (/\.gif$/i.test(pr.media) ? "image/gif" : "");
-      if(/gif/.test(type) && window.ImageDecoder){
-        const buf = await blob.arrayBuffer();
-        pl.dec = new ImageDecoder({ data: buf, type: "image/gif" });
-        await pl.dec.tracks.ready;
-        pl.count = (pl.dec.tracks.selectedTrack && pl.dec.tracks.selectedTrack.frameCount) || 1;
-        pl.kind = "gif"; pl.ready = true;
-      } else {
-        pl.bitmap = await createImageBitmap(blob);
-        pl.aspect = pl.bitmap.height/pl.bitmap.width;
-        pl.kind = "img"; pl.ready = true;
-      }
-    }catch(e){ pl.err = "media failed: " + e.message; say(pl.err); }
-  })();
-  return pl;
-}
-function mediaUploadApp(src, aspect){
-  ensureMediaTex();
-  gl.activeTexture(gl.TEXTURE1);
-  gl.bindTexture(gl.TEXTURE_2D, mediaTexApp);
-  try{ gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src); }catch(e){ return; }
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  mediaAspectApp = aspect;
-}
-function mediaAdvanceApp(){
-  if(!cur || !cur.media) return;
-  const pl = mediaPlayer(cur);
-  if(!pl.ready) return;
-  const sp = Math.max(vals.speed || 1, 0.05);
-  if(pl.kind === "gif" && !pl.pending){
-    const nowMs = performance.now();
-    if(nowMs >= pl.nextAt){
-      pl.pending = true;
-      pl.dec.decode({ frameIndex: pl.frameIdx }).then(res => {
-        const vf = res.image;
-        pl.aspect = vf.displayHeight/Math.max(vf.displayWidth, 1);
-        mediaUploadApp(vf, pl.aspect);
-        const durMs = vf.duration ? vf.duration/1000 : 80;
-        vf.close();
-        pl.frameIdx = (pl.frameIdx + 1) % pl.count;
-        pl.nextAt = nowMs + durMs/sp;
-        pl.pending = false;
-      }).catch(() => { pl.pending = false; });
-    }
-  } else if(pl.kind === "img" && !pl.uploaded){
-    mediaUploadApp(pl.bitmap, pl.aspect);
-    pl.uploaded = true;
-  }
-}
-
-/* -------- feedback buffers: the previous frame, kept -------- */
-let appFb = null, appBlit = null, appBlackTex = null, frameDt = 0.016;
-function ensureAppBlit(){
-  if(appBlit) return;
-  const vs = gl.createShader(gl.VERTEX_SHADER);
-  gl.shaderSource(vs, "attribute vec2 aP; varying vec2 vUv; void main(){ vUv = aP*0.5 + 0.5; gl_Position = vec4(aP, 0.0, 1.0); }");
-  gl.compileShader(vs);
-  const fsh = gl.createShader(gl.FRAGMENT_SHADER);
-  gl.shaderSource(fsh, "precision mediump float; varying vec2 vUv; uniform sampler2D uT; void main(){ gl_FragColor = texture2D(uT, vUv); }");
-  gl.compileShader(fsh);
-  const p = gl.createProgram();
-  gl.attachShader(p, vs); gl.attachShader(p, fsh); gl.linkProgram(p);
-  appBlit = { prog:p, aP:gl.getAttribLocation(p, "aP"), uT:gl.getUniformLocation(p, "uT") };
-  appBlackTex = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, appBlackTex);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0,0,0,255]));
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-}
-function ensureAppFb(w, h){
-  if(appFb && appFb.w === w && appFb.h === h) return;
-  const old = appFb;                     // ghosts survive resizes and render-size switches
-  const tex = [], fbo = [];
-  for(let i = 0; i < 2; i++){
-    const t = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    const f = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, f);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
-    gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
-    tex.push(t); fbo.push(f);
-  }
-  appFb = { w, h, tex, fbo, read:0 };
-  if(old){
-    ensureAppBlit();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo[0]);
-    gl.viewport(0, 0, w, h);
-    gl.useProgram(appBlit.prog);
-    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
-    gl.enableVertexAttribArray(appBlit.aP);
-    gl.vertexAttribPointer(appBlit.aP, 2, gl.FLOAT, false, 0, 0);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, old.tex[old.read]);
-    gl.uniform1i(appBlit.uT, 0);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    for(const t of old.tex) gl.deleteTexture(t);
-    for(const f of old.fbo) gl.deleteFramebuffer(f);
-  }
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-}
-
 /* -------- draw -------- */
 function draw(){
   const P = getProgram(cur);
   const e = effective();
-  if(++liveN >= 3){ liveN = 0; updateLiveOuts(e); }
   stepPaint();                              // advance the liquid-light field
-  const useFb = (e.fbAmt || 0) > 0.001 && P.locs.uPrev;
-  let fbWrite = 0;
-  if(useFb){
-    ensureAppBlit();
-    ensureAppFb(canvas.width, canvas.height);
-    fbWrite = 1 - appFb.read;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, appFb.fbo[fbWrite]);
-  } else {
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   rippleArr.fill(0);
   for(let i=0;i<ripples.length;i++){
     const r=ripples[i];
@@ -2345,25 +1944,14 @@ function draw(){
   gl.uniform2f(P.locs.uRes, canvas.width, canvas.height);
   gl.uniform1f(P.locs.uTime, simTime);
   gl.uniform2f(P.locs.uMouse, mouse.x, mouse.y);
-  const mA = (music.on && !music.renderMute) ? (vals.musicPunch==null?0.85:vals.musicPunch) : 0;
-  if(P.locs.uBeat) gl.uniform1f(P.locs.uBeat, music.out.beat*mA);
+  const mA = (music.on && !music.renderMute) ? (vals.musicAmt==null?0.7:vals.musicAmt) : 0;
+  const iK = (vals.musIntensity==null?.5:vals.musIntensity)*2;   // INTENSITY — glow + pump punch
+  const dK =  vals.musDepth==null?.5:vals.musDepth;              // DEPTH — bass blooms the field
+  if(P.locs.uBeat) gl.uniform1f(P.locs.uBeat, music.out.beat*mA*iK);
   if(P.locs.uAud)  gl.uniform1f(P.locs.uAud,  music.out.level*mA);
+  if(P.locs.uDepth)gl.uniform1f(P.locs.uDepth, Math.min(1, music.cg.bass*mA*dK*1.5));
   if(P.locs.uTap) gl.uniform3f(P.locs.uTap, tapState.x, tapState.y, tapState.t);
   if(P.locs.uRipplePts) gl.uniform3fv(P.locs.uRipplePts, rippleArr);
-  if(P.locs.uMedia){
-    ensureMediaTex();
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, mediaTexApp);
-    gl.uniform1i(P.locs.uMedia, 1);
-    if(P.locs.uMediaAspect) gl.uniform1f(P.locs.uMediaAspect, mediaAspectApp);
-  }
-  if(P.locs.uPrev){
-    ensureAppBlit();
-    gl.activeTexture(gl.TEXTURE2);
-    gl.bindTexture(gl.TEXTURE_2D, useFb ? appFb.tex[appFb.read] : appBlackTex);
-    gl.uniform1i(P.locs.uPrev, 2);
-  }
-  if(P.locs.uFbDt) gl.uniform1f(P.locs.uFbDt, Math.min(Math.max(frameDt*60, 0.25), 4));
   if(P.locs.uPaint && paintTexA){
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, paintTexA);
@@ -2374,70 +1962,26 @@ function draw(){
     if(P.locs[k]) gl.uniform1f(P.locs[k], v);
   }
   gl.drawArrays(gl.TRIANGLES,0,3);
-  if(useFb){
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.useProgram(appBlit.prog);
-    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
-    gl.enableVertexAttribArray(appBlit.aP);
-    gl.vertexAttribPointer(appBlit.aP, 2, gl.FLOAT, false, 0, 0);
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, appFb.tex[fbWrite]);
-    gl.uniform1i(appBlit.uT, 0);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    appFb.read = fbWrite;
-  }
-}
-let lastTickStamp = 0;
-const Q_STEPS = [1, .82, .66, .5, .38];
-const PERF = { ema: 12, qIdx: 0, n: 0 };
-try{ if(sessionStorage.getItem('to_gpu_reset')){ PERF.qIdx = 2; sessionStorage.removeItem('to_gpu_reset'); } }catch(e){}
-function pixelBudget(){
-  const projecting = projWin && !projWin.closed;
-  const base = projecting ? 1920*1080 : 8300000;   // hard 1080p ceiling while projecting
-  const q = Q_STEPS[PERF.qIdx];
-  return Math.round(base*q*q);
-}
-function perfNote(cost){
-  PERF.ema = PERF.ema*0.92 + cost*0.08;
-  if(++PERF.n < 45) return;
-  PERF.n = 0;
-  if(PERF.ema > 24 && PERF.qIdx < Q_STEPS.length-1){
-    PERF.qIdx++;
-    say("Auto quality: render scale " + Math.round(Q_STEPS[PERF.qIdx]*100) + "% \u2014 keeping the frame rate safe");
-  } else if(PERF.ema < 10 && PERF.qIdx > 0){ PERF.qIdx--; }
 }
 function tick(now){
-  if(now - lastTickStamp < 4) return;   // never double-step when two loops pace us
-  lastTickStamp = now;
   const dt = Math.min((now-last)/1000, .1); last = now;
-  frameDt = dt;
   if(!rendering){
     fitCanvas();
     if(playing) simTime += dt;
     musicUpdate(dt);
     mouse.x += (mouse.tx-mouse.x)*0.08;
     mouse.y += (mouse.ty-mouse.y)*0.08;
-    mediaAdvanceApp();
     if(performOn && (performTool==="play" || performTool==="spin")){
       const m = effMap();   // liquid easing: values glide toward your finger
       if(pfTarget.x!==null) vals[m.x] += (pfTarget.x - vals[m.x])*0.07;
       if(pfTarget.y!==null) vals[m.y] += (pfTarget.y - vals[m.y])*0.07;
       if(dragging) hudText();
     }
-    const t0p = performance.now();
     try{ draw(); }catch(err){ /* surfaced via Glass */ }
-    perfNote(performance.now() - t0p);
     if(projTrack && projTrack.requestFrame){ try{ projTrack.requestFrame(); }catch(e){} }
   }
 }
 function frame(now){ tick(now); requestAnimationFrame(frame); }
-canvas.addEventListener("webglcontextlost", e => {   // GPU reset: recover, don't freeze black
-  e.preventDefault();
-  try{ sessionStorage.setItem("to_gpu_reset", "1"); }catch(e2){}
-  say("Graphics reset \u2014 reloading at lower quality\u2026");
-  setTimeout(() => location.reload(), 1200);
-});
 initPaint();
 requestAnimationFrame(frame);
 
@@ -2445,14 +1989,17 @@ requestAnimationFrame(frame);
 const chipsEl = document.getElementById("chips");
 const bBlank = document.getElementById("bBlank");
 function selectPortal(p){
-  cur = p; vals = {...p.d};
+  // your music feel is a preference, not a portal setting — the six knobs
+  // (and the Advanced extras) ride along when the portal changes or EVOLVE steps
+  const keep={};
+  if(typeof vals==="object" && vals)
+    for(const mk of ["musSpeed","musHue","musMove","musDepth","musIntensity","musZoom","musicAmt","musicSens","beatRipples"])
+      if(vals[mk]!=null) keep[mk]=vals[mk];
+  cur = p; vals = {...p.d, ...keep};
   driftFlags = {...(p.dd || {hue:1})};   // portals default to a gentle hue drift
   if(music.on){                          // your saved wiring, else the signature
     const sv = musicRoutesByPortal[p.id];
     if(sv) musicRoutes = {...sv}; else autoRoute();
-    const sv2 = musicRoutes2ByPortal[p.id];
-    musicRoutes2 = sv2 ? JSON.parse(JSON.stringify(sv2)) : {};
-    ensureRoutes2();
   }
   buildSliders(); markSelected();
   if(typeof populateAxes==="function") populateAxes();
@@ -2476,6 +2023,86 @@ function refreshChipVis(){
 }
 document.getElementById("bShowAll").onclick=()=>{ showAllPortals=!showAllPortals; refreshChipVis(); };
 refreshChipVis();
+/* -------- MY PORTALS library: survives app updates (localStorage) -------- */
+const LIBKEY="tripout_library_v1";
+function libAll(){ try{ return JSON.parse(localStorage.getItem(LIBKEY)||"[]"); }catch(e){ return []; } }
+function libWrite(a){ try{ localStorage.setItem(LIBKEY, JSON.stringify(a)); }catch(e){ say("Couldn't save \u2014 storage full?"); } }
+function libRender(){
+  const el=document.getElementById("myLib"); if(!el) return;
+  const a=libAll(); el.innerHTML="";
+  if(!a.length) return;
+  const hd=document.createElement("div"); hd.className="eyeRow";
+  hd.innerHTML='<span class="eyebrow">My Portals</span><span class="cnt">'+a.length
+    +'</span>';
+  el.appendChild(hd);
+  a.forEach((L,i)=>{
+    const r=document.createElement("div"); r.className="libRow";
+    const n=document.createElement("button"); n.className="ln"; n.textContent=L.name;
+    n.title="Load this look";
+    n.onclick=()=>{ const pr=PRESETS.find(pp=>pp.id===L.portalId)||PRESETS[0];
+      selectPortal(pr); vals={...pr.d, ...L.vals}; buildSliders(); say("Loaded \u201c"+L.name+"\u201d"); };
+    const x=document.createElement("button"); x.className="lx"; x.textContent="\u2715";
+    x.title="Delete";
+    x.onclick=()=>{ const b=libAll(); b.splice(i,1); libWrite(b); libRender(); };
+    r.append(n,x); el.appendChild(r);
+  });
+  const io=document.createElement("div"); io.className="ovRow";
+  io.innerHTML='<span></span><span class="ovBtns"><button class="tert" id="bLibExp">EXPORT</button>'
+    +'<button class="tert" id="bLibImp">IMPORT</button></span>';
+  el.appendChild(io);
+  io.querySelector("#bLibExp").onclick=()=>{
+    const bl=new Blob([JSON.stringify(libAll(),null,1)],{type:"application/json"});
+    const u=URL.createObjectURL(bl); const t=document.createElement("a");
+    t.href=u; t.download="tripout-my-portals.json"; t.click(); URL.revokeObjectURL(u);
+  };
+  io.querySelector("#bLibImp").onclick=()=>{
+    const f=document.createElement("input"); f.type="file"; f.accept="application/json";
+    f.onchange=()=>{ const r=new FileReader();
+      r.onload=()=>{ try{ const inc=JSON.parse(r.result);
+        libWrite(libAll().concat(inc)); libRender(); say("Imported "+inc.length+" looks"); }
+        catch(e){ say("Not a valid library file"); } };
+      r.readAsText(f.files[0]); };
+    f.click();
+  };
+}
+libRender();
+document.getElementById("bRand").insertAdjacentHTML("beforebegin",
+  '<button class="tert" id="bLibSave">\uff0b SAVE LOOK</button><button class="tert" id="bEvolve">\u267e EVOLVE</button>');
+let evolveTimer=null;
+document.getElementById("bEvolve").onclick=function(){
+  if(evolveTimer){ clearInterval(evolveTimer); evolveTimer=null;
+    this.style.borderBottomColor=""; say("Evolution paused"); return; }
+  const step=()=>{
+    try{
+      // snapshot at low res: encoding the full canvas froze a frame right at
+      // the changeover — a small copy is invisible inside a 2.5s dissolve
+      const th=document.createElement("canvas");
+      const sc=Math.min(1, 640/Math.max(canvas.width,1));
+      th.width=Math.max(2,Math.round(canvas.width*sc));
+      th.height=Math.max(2,Math.round(canvas.height*sc));
+      th.getContext("2d").drawImage(canvas,0,0,th.width,th.height);
+      const im=document.createElement("img");
+      im.src=th.toDataURL("image/jpeg",.7);
+      im.style.cssText="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:4;transition:opacity 2.5s;pointer-events:none";
+      document.getElementById("stage").appendChild(im);
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{ im.style.opacity="0"; }));
+      setTimeout(()=>im.remove(), 2800);
+    }catch(e){}
+    // "grain" (Noise) sits out of the rotation for now — party-safe set
+    const opts=PRESETS.filter(pp=>pp.mode!=="free" && pp.id!==cur.id && pp.id!=="grain");
+    selectPortal(opts[Math.floor(Math.random()*opts.length)]);
+    say("Evolved \u2192 "+cur.name);
+  };
+  evolveTimer=setInterval(step, 60000);
+  this.style.borderBottomColor="var(--ink)";
+  say("Evolving \u2014 a new portal every minute, forever");
+};
+document.getElementById("bLibSave").onclick=()=>{
+  const name=prompt("Name this portal:","My Portal "+(libAll().length+1));
+  if(!name) return;
+  const a=libAll(); a.unshift({name, portalId:cur.id, vals:{...vals}, saved:Date.now()});
+  libWrite(a); libRender(); say("Saved \u201c"+name+"\u201d \u2014 survives app updates");
+};
 const thumbs={};
 function genThumbs(){                      // real canvas snapshots, one per portal
   const tc=document.createElement("canvas"); tc.width=210; tc.height=150;
@@ -2491,46 +2118,12 @@ function genThumbs(){                      // real canvas snapshots, one per por
   g2.texParameteri(g2.TEXTURE_2D,g2.TEXTURE_WRAP_S,g2.CLAMP_TO_EDGE);
   g2.texParameteri(g2.TEXTURE_2D,g2.TEXTURE_WRAP_T,g2.CLAMP_TO_EDGE);
   const list=PRESETS.filter(pp=>pp.mode!=="free");
-  const setThumb=(id,url)=>{
-    thumbs[id]=url;
-    const img=chipsEl.querySelector('.chip[data-id="'+id+'"] .th');
-    if(img) img.src=url;
-  };
-  const tileThumb=(pr,label)=>{             // never leave a card blank
-    const c2=document.createElement("canvas"); c2.width=210; c2.height=150;
-    const x=c2.getContext("2d");
-    x.fillStyle="#0a0a12"; x.fillRect(0,0,210,150);
-    const grd=x.createRadialGradient(105,75,8,105,75,110);
-    grd.addColorStop(0,"#2c2c44"); grd.addColorStop(1,"#0a0a12");
-    x.fillStyle=grd; x.fillRect(0,0,210,150);
-    x.fillStyle="#9a9ab8"; x.font="11px monospace"; x.textAlign="center";
-    x.fillText(label||pr.name,105,80);
-    setThumb(pr.id,c2.toDataURL("image/jpeg",.82));
-  };
-  const mediaThumb=async(pr)=>{             // media portals: show the actual footage
-    try{
-      let blob=null;
-      try{ const r=await fetch(pr.media); if(r.ok) blob=await r.blob(); }catch(e){}
-      if(!blob) blob=await mediaIdbGet(pr.id);
-      if(!blob){ tileThumb(pr,"\u25b8 "+pr.name+" \u2014 drop footage"); return; }
-      const bm=await createImageBitmap(blob);
-      const c2=document.createElement("canvas"); c2.width=210; c2.height=150;
-      const x=c2.getContext("2d");
-      const sc=Math.max(210/bm.width,150/bm.height);
-      x.drawImage(bm,(210-bm.width*sc)/2,(150-bm.height*sc)/2,bm.width*sc,bm.height*sc);
-      bm.close();
-      setThumb(pr.id,c2.toDataURL("image/jpeg",.82));
-    }catch(e){ tileThumb(pr); }
-  };
-  list.filter(pp=>pp.mode==="media").forEach(pp=>mediaThumb(pp));   // async + cheap: never
-  let i=0;                                                           // stuck behind slow compiles
+  let i=0;
   (function one(){
     if(i>=list.length) return;
     const pr=list[i++];
-    if(pr.mode==="media"){ setTimeout(one,70); return; }
-    let made=false;
     try{
-      const src=headerFor(uniformKeysForMode(pr.mode))+GLSL_COMMON+GLSL_STARFIELD+GLSL_EXTRAS+pr.scene+"\n"+GLSL_POST+APP_MAIN;
+      const src=headerFor(uniformKeysForMode(pr.mode))+GLSL_COMMON+GLSL_STARFIELD+pr.scene+"\n"+GLSL_POST+APP_MAIN;
       const vs=g2.createShader(g2.VERTEX_SHADER); g2.shaderSource(vs,vsrc); g2.compileShader(vs);
       const fsh=g2.createShader(g2.FRAGMENT_SHADER); g2.shaderSource(fsh,src); g2.compileShader(fsh);
       if(g2.getShaderParameter(fsh,g2.COMPILE_STATUS)){
@@ -2541,38 +2134,38 @@ function genThumbs(){                      // real canvas snapshots, one per por
         g2.viewport(0,0,210,150);
         const u1=(n,v)=>{const l=g2.getUniformLocation(pg,n); if(l) g2.uniform1f(l,v);};
         const l2=g2.getUniformLocation(pg,"uRes"); if(l2) g2.uniform2f(l2,210,150);
-        // some portals are dark at any single instant — try a few, keep the brightest
+        u1("uTime",5.0);
         const lm=g2.getUniformLocation(pg,"uMouse"); if(lm) g2.uniform2f(lm,0,0);
         const lt=g2.getUniformLocation(pg,"uTap"); if(lt) g2.uniform3f(lt,0,0,-99);
         const lr=g2.getUniformLocation(pg,"uRipplePts[0]"); if(lr) g2.uniform3fv(lr,new Float32Array(24).fill(-999));
-        u1("uBeat",0); u1("uAud",0);
+        u1("uBeat",0); u1("uAud",0); u1("uDepth",0);
         for(const c of CTLS) if(c.u && pr.d[c.k]!=null) u1(c.u, pr.d[c.k]);
         g2.activeTexture(g2.TEXTURE0); g2.bindTexture(g2.TEXTURE_2D,pt);
         const lp=g2.getUniformLocation(pg,"uPaint"); if(lp) g2.uniform1i(lp,0);
-        let best=null, bestLum=-1;
-        const pxb=new Uint8Array(4);
-        for(const T of [5.0, 13.0, 27.0]){
-          u1("uTime",T);
-          g2.drawArrays(g2.TRIANGLES,0,3);
-          let lum=0;
-          for(let sx=0;sx<4;sx++) for(let sy=0;sy<4;sy++){
-            g2.readPixels(26+sx*52, 19+sy*37, 1, 1, g2.RGBA, g2.UNSIGNED_BYTE, pxb);
-            lum+=pxb[0]+pxb[1]+pxb[2];
-          }
-          if(lum>bestLum){ bestLum=lum; best=tc.toDataURL("image/jpeg",.82); }
-          if(bestLum>1500) break;
-        }
-        setThumb(pr.id, best);
-        made=true;
+        g2.drawArrays(g2.TRIANGLES,0,3);
+        thumbs[pr.id]=tc.toDataURL("image/jpeg",.82);
+        const img=chipsEl.querySelector('.chip[data-id="'+pr.id+'"] .th');
+        if(img) img.src=thumbs[pr.id];
         g2.deleteProgram(pg);
       }
       g2.deleteShader(vs); g2.deleteShader(fsh);
     }catch(e){}
-    if(!made) tileThumb(pr);               // compile failed: labeled tile, not a hole
     setTimeout(one, 70);
   })();
 }
 setTimeout(genThumbs, 500);
+/* warm the compiler — build every portal's program in the background so a
+   chip tap or an EVOLVE step never freezes a frame on first visit. Staggered,
+   and started after the thumbnails so startup stays smooth. */
+setTimeout(function warmPrograms(){
+  const todo=PRESETS.filter(pp=>pp!==cur);
+  let i=0;
+  (function one(){
+    if(i>=todo.length || rendering){ if(i<todo.length) setTimeout(one, 2000); return; }
+    try{ getProgram(todo[i]); }catch(e){}
+    i++; setTimeout(one, 350);
+  })();
+}, 3500);
 function markSelected(){
   bBlank.classList.toggle("on", cur.id==="free");
   for(const b of chipsEl.children) b.classList.toggle("on", b.dataset.id===cur.id);
@@ -2629,8 +2222,8 @@ buildIndex();
 const slidersEl = document.getElementById("sliders");
 const inputs = {};
 const openGroups = {Space:true, Field:true, Color:true};
+let musicAdvOpen = false;   // the Music ADVANCED shelf remembers if you left it open
 function buildSliders(){
-  liveOuts = {};
   slidersEl.innerHTML=""; for(const k in inputs) delete inputs[k];
   const keys = uiKeysForMode(cur.mode);
   const groups = {};
@@ -2642,23 +2235,18 @@ function buildSliders(){
     det.addEventListener("toggle",()=>{ openGroups[g]=det.open; });
     const sum=document.createElement("summary"); sum.textContent=g;
     const body=document.createElement("div"); body.className="grpbody";
+    let advBody=null, advDet=null;           // Music's ADVANCED shelf, built below
 
     if(g==="Music"){
       const head=document.createElement("div"); head.className="musHead";
       head.innerHTML=
-        '<div class="meterHead"><div class="meters idle" id="musMeters"><i></i><i></i><i></i><i></i><i></i></div>'
+        '<div class="meterHead"><div class="meters'+(music.on?'':' idle')+'" id="musMeters"><i></i><i></i><i></i><i></i><i></i></div>'
         +'<span class="bpm" id="musBpm"></span></div>'
         +'<div class="meterLbls"><b>B</b><b>M</b><b>T</b><b>H</b><b>\u2665</b></div>'
         +'<div class="musSeg" id="musSeg">'
         +'<button data-in="mic">MIC</button><button data-in="tab">TAB \u266a</button>'
         +'<button data-in="files">FILES</button><button class="nx" data-in="next" title="Next track">\u25b8</button></div>'
-        +'<input id="musFileIn" type="file" accept="audio/*" multiple style="display:none">'
-        +'<button class="slab" id="bRouting"><span>ROUTING \u2014 <b id="slabTxt">OFF</b></span><span class="st" id="slabSt">\u25cb</span></button>'
-        +'<div class="musRow2"><button class="tert" id="bAutoRoute">AUTO-ROUTE</button>'
-        +'<button class="tert" id="bPin" title="Adopt where the wander has taken you \u2014 sliders absorb the journey, and it continues from here">PIN THIS MOMENT</button></div>'
-        +'<div class="musRow2" id="fileTransport" style="display:none"><button class="tert" id="mfPlay">\u25b6 PLAY</button>'
-        +'<button class="tert" id="mfRestart" title="Back to the top">\u23ee</button>'
-        +'<span class="bpm" id="mfName"></span></div>';
+        +'<input id="musFileIn" type="file" accept="audio/*" multiple style="display:none">';
       body.appendChild(head);
       const fIn=head.querySelector("#musFileIn");
       head.querySelector("#musSeg").onclick=(e)=>{
@@ -2667,59 +2255,18 @@ function buildSliders(){
         else if(t==="tab") musicStartTab();
         else if(t==="files") fIn.click();
         else if(t==="next"){
-          if(music.queue.length>1){ music.qi=(music.qi+1)%music.queue.length; musicStartFile(music.queue[music.qi], true); }
+          if(music.queue.length>1){ music.qi=(music.qi+1)%music.queue.length; musicStartFile(music.queue[music.qi]); }
           else say("Pick several files to make a set");
         }
       };
       fIn.onchange=()=>{ const fs=[...fIn.files]; if(!fs.length) return;
-        music.queue=fs; music.qi=0; musicStartFile(fs[0], false); };
-      const slab=head.querySelector("#bRouting");
-      slab.classList.toggle("on",musicRoutingUI);
-      slab.querySelector("#slabTxt").textContent=musicRoutingUI?"MUSIC DRIVES THE SLIDERS":"OFF";
-      slab.querySelector("#slabSt").textContent=musicRoutingUI?"ON \u25cf":"\u25cb";
-      slab.onclick=()=>{
-        musicRoutingUI=!musicRoutingUI;
-        if(musicRoutingUI && !Object.keys(musicRoutes).length) autoRoute();
-        buildSliders(); updateDockTag();
-      };
-      head.querySelector("#bAutoRoute").onclick=()=>{
-        autoRoute(); musicRoutesByPortal[cur.id]={...musicRoutes};
-        buildSliders(); say("Routed for "+cur.name);
-      };
-      const pin=head.querySelector("#bPin");
-      if(pin) pin.onclick=()=>{
-        const wl = vals.musicWander==null?0.35:vals.musicWander;
-        if(!music.on || wl <= 0.001){ say("Nothing wandering to pin \u2014 music on, Wander up"); return; }
-        for(const k of uiKeysForMode(cur.mode)){
-          if(!routeEligible(k) || k === "hue") continue;
-          const c = byKey[k];
-          vals[k] = Math.min(c.max, Math.max(c.min, vals[k] + wanderOff(k, c, wl)));
-        }
-        const hw = (noise1(music.wanderT*1.8 + 11.3) - noise1(music.wanderPinT*1.8 + 11.3))*wl*0.3;
-        vals.hue = ((vals.hue + hw) % 1 + 1) % 1;
-        music.wanderPinT = music.wanderT;
-        buildSliders();
-        say("Pinned \u2014 this is home now; the journey continues from here");
-      };
-      const ft=head.querySelector("#fileTransport");
-      if(ft){
-        const pb=ft.querySelector("#mfPlay");
-        const updT=()=>{
-          ft.style.display=(music.inputKind==="FILE"&&music.audioEl)?"flex":"none";
-          if(music.audioEl) pb.textContent=music.audioEl.paused?"\u25b6 PLAY":"\u275a\u275a PAUSE";
-          const nm=ft.querySelector("#mfName");
-          if(nm&&music.queue&&music.queue[music.qi]) nm.textContent=music.queue[music.qi].name;
-        };
-        updT();
-        pb.onclick=()=>{
-          if(!music.audioEl) return;
-          if(music.audioEl.paused){ const p=music.audioEl.play(); if(p&&p.catch)p.catch(()=>{}); }
-          else music.audioEl.pause();
-          updT();
-        };
-        ft.querySelector("#mfRestart").onclick=()=>{ if(music.audioEl) music.audioEl.currentTime=0; };
-      }
-      syncSeg();
+        music.queue=fs; music.qi=0; musicStartFile(fs[0]); };
+      // ADVANCED \u2014 the routing system and the ear's fine controls live one level down
+      advDet=document.createElement("details"); advDet.className="advGrp"; advDet.open=!!musicAdvOpen;
+      advDet.addEventListener("toggle",()=>{ musicAdvOpen=advDet.open; });
+      const asum=document.createElement("summary"); asum.textContent="Advanced \u2014 routing & sensitivity";
+      advBody=document.createElement("div"); advBody.className="advBody";
+      advDet.append(asum,advBody);
     }
     if(LESSONS[g]){
       const les=document.createElement("details"); les.className="lesson";
@@ -2733,6 +2280,7 @@ function buildSliders(){
 
     groups[g].forEach(k=>{
       const c=byKey[k];
+      const host=(c.adv && advBody) ? advBody : body;   // adv-flagged controls go to the shelf
       if(c.toggle){
         const wrap=document.createElement("div"); wrap.className="ctl toggle";
         const lab=document.createElement("label");
@@ -2740,7 +2288,7 @@ function buildSliders(){
         const sw=document.createElement("button"); sw.className="sw"+(vals[k]>0.5?" on":"");
         sw.setAttribute("aria-label",c.label);
         sw.onclick=()=>{ vals[k]=vals[k]>0.5?0:1; sw.classList.toggle("on",vals[k]>0.5); };
-        wrap.append(lab,sw); body.appendChild(wrap);
+        wrap.append(lab,sw); host.appendChild(wrap);
         inputs[k]={sync:()=>sw.classList.toggle("on",vals[k]>0.5)};
         return;
       }
@@ -2769,65 +2317,54 @@ function buildSliders(){
         db.onclick=()=>{ driftFlags[k]=driftFlags[k]?0:1; db.classList.toggle("on",!!driftFlags[k]); };
         rowBtns.push(db);
       }
-      if(musicRoutingUI && routeEligible(k)){
+      if(musicRoutingUI && musicRoutes[k] && routeEligible(k)){
         wrap.classList.add("driftable");
         const rt=document.createElement("button");
-        const sg0=musicRoutes[k]||"";
-        rt.className="rt"+(sg0?" on":"");
-        rt.textContent=sg0?"\u266a"+SIG_ABBR[sg0]:"\u00b7";
-        rt.title=sg0?"Music-driven \u2014 tap to cycle Bass / Mid / Treble / Harmony / Beat / off"
-                    :"Tap to wire this slider to the music: Bass / Mid / Treble / Harmony / Beat";
+        rt.className="rt on";
+        rt.textContent="\u266a"+SIG_ABBR[musicRoutes[k]];
+        rt.title="This slider is music-driven \u2014 tap to cycle Bass / Mid / Treble / Harmony / Beat / off";
         rt.onclick=()=>{
           const i=(ROUTE_SIGS.indexOf(musicRoutes[k]||"")+1)%ROUTE_SIGS.length;
           if(ROUTE_SIGS[i]){ musicRoutes[k]=ROUTE_SIGS[i]; rt.textContent="\u266a"+SIG_ABBR[musicRoutes[k]]; }
-          else { delete musicRoutes[k]; delete musicRoutes2[k];
-                 musicRoutesByPortal[cur.id]={...musicRoutes};
-                 musicRoutes2ByPortal[cur.id]=JSON.parse(JSON.stringify(ensureRoutes2()));
-                 buildSliders(); return; }
-          ensureRoutes2();
+          else { delete musicRoutes[k]; musicRoutesByPortal[cur.id]={...musicRoutes}; buildSliders(); return; }
           musicRoutesByPortal[cur.id]={...musicRoutes};
-          musicRoutes2ByPortal[cur.id]=JSON.parse(JSON.stringify(musicRoutes2));
-          buildSliders();
         };
         rowBtns.push(rt);
       }
       if(rowBtns.length===2) wrap.classList.add("routed");
       if(rowBtns.length){ wrap.append(lab,...rowBtns,out,inp); }
       else { wrap.append(lab,out,inp); }
-      body.appendChild(wrap);
-      if(routeEligible(k) || k==="hue") liveOuts[k]={out, c};
-      if(musicRoutingUI && musicRoutes[k] && routeEligible(k)){
-        ensureRoutes2();
-        const rr = musicRoutes2[k];
-        const box = document.createElement("div");
-        box.className = "routebox";
-        const dl = document.createElement("label");
-        dl.textContent = "\u266a depth";
-        const dep = document.createElement("input");
-        dep.type = "range"; dep.min = -1; dep.max = 1; dep.step = 0.05; dep.value = rr.depth;
-        const dv = document.createElement("output");
-        dv.textContent = (+rr.depth).toFixed(2);
-        dep.oninput = () => {
-          rr.depth = +dep.value; dv.textContent = (+rr.depth).toFixed(2);
-          musicRoutes2ByPortal[cur.id] = JSON.parse(JSON.stringify(musicRoutes2));
-        };
-        box.append(dl, dep, dv);
-        for(const sh of ROUTE_SHAPES){
-          const b = document.createElement("button");
-          b.className = "shp" + (rr.shape === sh ? " on" : "");
-          b.textContent = sh;
-          b.title = {flow:"follow the smoothed signal", hit:"fire an envelope on this signal's onsets", step:"jump on every beat (hue: step around the wheel)"}[sh];
-          b.onclick = () => {
-            rr.shape = sh;
-            musicRoutes2ByPortal[cur.id] = JSON.parse(JSON.stringify(musicRoutes2));
-            box.querySelectorAll(".shp").forEach(x => x.classList.toggle("on", x.textContent === sh));
-          };
-          box.appendChild(b);
-        }
-        body.appendChild(box);
-      }
+      host.appendChild(wrap);
       inputs[k]={sync:()=>{ inp.value=vals[k]; paint(); }};
     });
+    if(g==="Music" && advDet){               // routing & extras close out the ADVANCED shelf
+      const tail=document.createElement("div"); tail.className="advTail";
+      tail.innerHTML=
+        '<button class="slab" id="bRouting"><span>ROUTING — <b id="slabTxt">OFF</b></span><span class="st" id="slabSt">○</span></button>'
+        +'<div class="musRow2"><button class="tert" id="bAutoRoute">AUTO-ROUTE</button>'
+        +'<button class="musTog" id="bBeatRip"></button></div>';
+      advBody.appendChild(tail);
+      const slab=tail.querySelector("#bRouting");
+      slab.classList.toggle("on",musicRoutingUI);
+      slab.querySelector("#slabTxt").textContent=musicRoutingUI?"MUSIC DRIVES THE SLIDERS":"OFF";
+      slab.querySelector("#slabSt").textContent=musicRoutingUI?"ON ●":"○";
+      slab.onclick=()=>{
+        musicRoutingUI=!musicRoutingUI;
+        if(musicRoutingUI && !Object.keys(musicRoutes).length) autoRoute();
+        buildSliders(); updateDockTag();
+      };
+      tail.querySelector("#bAutoRoute").onclick=()=>{
+        autoRoute(); musicRoutesByPortal[cur.id]={...musicRoutes};
+        buildSliders(); say("Routed for "+cur.name);
+      };
+      const br=tail.querySelector("#bBeatRip");
+      br.textContent="BEAT RIPPLES "+((vals.beatRipples||0)>0.5?"● ON":"○ OFF");
+      br.onclick=()=>{
+        vals.beatRipples=(vals.beatRipples||0)>0.5?0:1;
+        br.textContent="BEAT RIPPLES "+((vals.beatRipples||0)>0.5?"● ON":"○ OFF");
+      };
+      body.appendChild(advDet);
+    }
     if(g==="Paint"){
       const row=document.createElement("div"); row.className="driftAll";
       const cb=document.createElement("button"); cb.className="btn"; cb.textContent="Clear Paint";
@@ -2836,6 +2373,7 @@ function buildSliders(){
     }
     det.append(sum,body); slidersEl.appendChild(det);
   });
+  syncSeg();   // now that the fresh panel is in the DOM, restore the input highlight
 }
 function syncSliders(){ for(const k in inputs) inputs[k].sync(); }
 buildSliders();
@@ -2849,7 +2387,6 @@ document.getElementById("bPlay").onclick=function(){ playing=!playing; this.text
 document.getElementById("bMusic").onclick=()=>{
   if(music.on){ musicStop(); return; }
   musicStart(music.deviceId);
-  musicRoutingUI = true;
   showTab("build"); openGroups.Music=true; buildSliders();
   const d=document.getElementById("grp-Music"); if(d) d.scrollIntoView({block:"start"});
 };
@@ -2878,8 +2415,7 @@ function openProjector(){
   mb.onclick = ()=>{ const fit=d.body.classList.toggle("fit"); mb.textContent=fit?"Fill":"Fit"; };
   (function drive(){                       // the VISIBLE window paces the engine
     if(!projWin || projWin.closed){ projTrack=null; return; }
-    // cap projector-paced rendering at ~60fps (a 120Hz panel would double GPU load)
-    if(document.hidden && performance.now() - lastTickStamp >= 15) tick(performance.now());
+    if(document.hidden) tick(performance.now());
     projWin.requestAnimationFrame(drive);
   })();
   say("Output window open \u2014 drag it to the screen, hit Fullscreen");
@@ -2966,26 +2502,8 @@ function pickMime(){
 bRec.onclick=()=>{
   if(recorder){ recorder.stop(); return; }
   if(!canvas.captureStream || !window.MediaRecorder){ say("Recording not supported here"); return; }
-  // stabilize the take: fix the canvas at \u22641080p for the whole recording
-  // (resizing the frame source mid-take is what stalls video encoders)
-  { const bud=1920*1080; const w0=canvas.width, h0=canvas.height;
-    if(w0*h0>bud){ const sc=Math.sqrt(bud/(w0*h0));
-      canvas.width=Math.round(w0*sc); canvas.height=Math.round(h0*sc); } }
-  if(music.on && music.inputKind==="FILE" && music.audioEl && music.audioEl.paused){
-    music.audioEl.currentTime=0;
-    const p=music.audioEl.play(); if(p&&p.catch)p.catch(()=>{});
-  }
-  let mime=pickMime();
-  const rst=canvas.captureStream(60);
-  if(music.on && music.recDest){          // bake the actual music into the clip
-    const at=music.recDest.stream.getAudioTracks()[0];
-    if(at){
-      rst.addTrack(at);
-      if(mime && mime.indexOf("webm")>=0 && MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus"))
-        mime="video/webm;codecs=vp9,opus";
-    }
-  }
-  recorder=new MediaRecorder(rst, mime?{mimeType:mime,videoBitsPerSecond:Math.min(16e6,Math.round(canvas.width*canvas.height*8))}:{videoBitsPerSecond:Math.min(16e6,Math.round(canvas.width*canvas.height*8))});
+  const mime=pickMime();
+  recorder=new MediaRecorder(canvas.captureStream(60), mime?{mimeType:mime,videoBitsPerSecond:16e6}:{videoBitsPerSecond:16e6});
   chunks=[];
   recorder.ondataavailable=e=>{ if(e.data.size) chunks.push(e.data); };
   recorder.onstop=()=>{
@@ -3000,7 +2518,7 @@ bRec.onclick=()=>{
   recorder.start();
   bRec.textContent="Stop ●"; bRec.classList.add("live");
   const pr=document.getElementById("pfRec"); if(pr) pr.classList.add("live");
-  say(music.on ? "Recording live — with the music ♪" : "Recording live…");
+  say("Recording live…");
 };
 
 /* -------- panel collapse -------- */
@@ -3025,7 +2543,7 @@ function bakeShaderToy(){
   const e=effective();
   let h="// Trip Out — \""+cur.name+"\"\n// Your exact settings, baked in. Paste into shadertoy.com → New.\n\n";
   for(const k of keys) h+="const float "+byKey[k].u+" = "+(+(e[k]!==undefined?e[k]:byKey[k].min)).toFixed(3)+";\n";
-  h+="const vec2 uMouse = vec2(0.0);\nconst vec3 uTap = vec3(0.0);\nconst float uBeat = 0.0; const float uAud = 0.0;\n#define uTime iTime\n#define uMedia iChannel0\nconst float uMediaAspect = 1.0;\n";
+  h+="const vec2 uMouse = vec2(0.0);\nconst vec3 uTap = vec3(0.0);\nconst float uBeat = 0.0; const float uAud = 0.0;\n#define uTime iTime\n";
   const main=`
 void mainImage(out vec4 fragColor, in vec2 fragCoord){
   vec2 uv = (fragCoord - 0.5*iResolution.xy)/iResolution.y;
@@ -3113,7 +2631,7 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord){
   }
   fragColor = vec4(col, 1.0);
 }`;
-  return h + GLSL_COMMON + GLSL_STARFIELD + GLSL_EXTRAS + cur.scene + "\n" + GLSL_POST + main;
+  return h + GLSL_COMMON + GLSL_STARFIELD + cur.scene + "\n" + GLSL_POST + main;
 }
 
 document.getElementById("bCode").onclick=()=>{
@@ -3124,16 +2642,7 @@ document.getElementById("bCode").onclick=()=>{
 document.getElementById("bCloseGlass").onclick=()=>glassEl.classList.remove("open");
 
 document.getElementById("bRun").onclick=()=>{
-  let src=codeArea.value;
-  // a lab EXPORT block pasted whole? pull the shader out of the packaging
-  if(/\bscene\s*:\s*`/.test(src) && /\bid\s*:/.test(src)){
-    const m=src.match(/scene\s*:\s*`([\s\S]*?)`/);
-    if(m){
-      src = headerFor(uniformKeysForMode(cur.mode)) + GLSL_COMMON + GLSL_STARFIELD + GLSL_EXTRAS + m[1] + "\n" + GLSL_POST + APP_MAIN;
-      codeArea.value = src;
-      say("That was a lab export block \u2014 I pulled the shader out of the packaging for you \u266a");
-    }
-  }
+  const src=codeArea.value;
   try{
     const keys=uniformKeysForMode(cur.mode);
     const built=buildProgram(src, keys);      // throws with compiler log on error
@@ -3362,7 +2871,7 @@ bGo.onclick=async ()=>{
       });
       enc.configure(cfg);
       for(let f=0; f<frames && !cancelRender; f++){
-        simTime = t0 + f/rOpts.fps; frameDt = 1/rOpts.fps;
+        simTime = t0 + f/rOpts.fps;
         draw();
         const vf = new VideoFrame(canvas, {timestamp:Math.round(f*1e6/rOpts.fps), duration:Math.round(1e6/rOpts.fps)});
         enc.encode(vf, {keyFrame: f % (rOpts.fps*2) === 0});
@@ -3391,7 +2900,7 @@ bGo.onclick=async ()=>{
       const zip=new JSZip();
       const pad=n=>String(n).padStart(5,"0");
       for(let f=0; f<frames && !cancelRender; f++){
-        simTime=t0+f/rOpts.fps; frameDt=1/rOpts.fps;
+        simTime=t0+f/rOpts.fps;
         draw();
         const blob=await new Promise(res=>canvas.toBlob(res,"image/png"));
         zip.file("iris_"+cur.id+"_"+pad(f)+".png", blob);
